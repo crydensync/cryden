@@ -2,7 +2,7 @@ package core
 
 import "context"
 
-// user store defines how we store and retrieve users
+// UserStore defines how we store and retrieve users
 // ANY database can implement this interface 
 type UserStore interface {
 	Create(ctx context.Context, email, passwordHash string) (*User, error)
@@ -13,7 +13,7 @@ type UserStore interface {
 	Delete(ctx context.Context, id string) error
 }
 
-// session store defines how we store retrieve sessions
+// SessionStore defines how we store retrieve sessions
 type SessionStore interface {
 	Create(ctx context.Context, userID string) (*Session,  error)
 	GetByRefreshToken(ctx context.Context, refreshToken string) (*Session, error)

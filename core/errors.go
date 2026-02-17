@@ -5,7 +5,7 @@ import "errors"
 var (
 	// user errors
 	ErrUserNotFound   = errors.New("user not found")
-	ErrUserExits      = errors.New("user alredy exits")
+	ErrUserExists      = errors.New("user alredy exists")
 	ErrInvalidEmail   = errors.New("incorrect email format")
 
 	// password errors
