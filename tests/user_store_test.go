@@ -58,7 +58,7 @@ func TestMemoryUserStore(t *testing.T) {
 		
 		// Second creation with same email should fail
 		_, err = store.Create(ctx, "duplicate@example.com", "hash")
-		if err != core.ErrUserExits {
+		if err != core.ErrUserExists {
 			t.Errorf("Expected ErrUserExists, got %v", err)
 		}
 	})
