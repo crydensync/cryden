@@ -16,7 +16,7 @@ var (
 	ErrPasswordNoNumber  = errors.New("password must contain a number")
 
   // auth errors
-	ErrInvalidCredencials = errors.New("invalid email or password")
+  ErrInvalidCredentials	= errors.New("invalid email or password")
 
 	// token errors
 	ErrInvalidSession    = errors.New("invalid or expired token")
