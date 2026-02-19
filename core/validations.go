@@ -12,7 +12,7 @@ func ValidateEmail(email string) error {
   // Check if empty
 	if email == "" {
 		return &ValidationError{
-			Fieled: "email",
+			Field: "email",
 			Message: "email cannot be empty",
 			Err: ErrInvalidEmail,
 		}
@@ -20,7 +20,7 @@ func ValidateEmail(email string) error {
   // Check lenght (RFC 5321)
 	if len(email) > 254 {
 		return &ValidationError{
-			Fieled: "email",
+			Field: "email",
 			Message: "email too long",
 			Err: ErrInvalidEmail,
 		}
@@ -28,7 +28,7 @@ func ValidateEmail(email string) error {
   // Must contail "@"
 	if !strings.Contains(email, "@") {
 		return &ValidationError{
-			Fieled: "email",
+			Field: "email",
 			Message: "email must contain @ symbol",
 			Err: ErrInvalidEmail,
 		}
@@ -37,7 +37,7 @@ func ValidateEmail(email string) error {
 	parts := strings.Split(email, "@")
 	if len(parts) != 2 {
 		return &ValidationError{
-			Fieled: "email",
+			Field: "email",
 			Message: "email must contain exactly on@ symbol",
 		}
 	}
@@ -46,7 +46,7 @@ func ValidateEmail(email string) error {
 	// Check local part not empty 
 	if local == "" {
 		return &ValidationError{
-			Fieled: "email",
+			Field: "email",
 			Message: "email local part cannot be empty",
 			Err: ErrInvalidEmail,
 		}
@@ -55,7 +55,7 @@ func ValidateEmail(email string) error {
 	// Check domain not empty
 	if domain == "" {
 		return &ValidationError{
-			Fieled: "email",
+			Field: "email",
 			Message: "email domain connot be empty",
 			Err: ErrInvalidEmail,
 		}
@@ -64,7 +64,7 @@ func ValidateEmail(email string) error {
 	// Domain must contain . dot
 	if !strings.Contains(domain, ".") {
 		return &ValidationError{
-			Fieled: "email",
+			Field: "email",
 			Message: "email must contain a . dot",
 			Err: ErrInvalidEmail,
 		}
@@ -100,7 +100,7 @@ func ValidatePassword(password string, policy PasswordPolicy) error {
 	// Check lenght
 	if len(password) < policy.MinLenght {
 		return &ValidationError{
-			Fieled: "password",
+			Field: "password",
 			Message: "password too short",
 			Err: ErrPasswordToShort,
 		}
@@ -108,7 +108,7 @@ func ValidatePassword(password string, policy PasswordPolicy) error {
 	
 	if len(password) > policy.MaxLenght {
 		return &ValidationError{
-			Fieled: "password",
+			Field: "password",
 			Message: "password too long",
 			Err: ErrPasswordTooLong,
 		}
@@ -131,7 +131,7 @@ func ValidatePassword(password string, policy PasswordPolicy) error {
 
 	if policy.RequireUpper && !hasUpper {
 		return &ValidationError{
-			Fieled: "password",
+			Field: "password",
 			Message: "password must contain uppercase ",
 			Err: ErrPasswordNoUpper,
 		}
@@ -139,7 +139,7 @@ func ValidatePassword(password string, policy PasswordPolicy) error {
 
 	if policy.RequireLower && !hasLower {
 		return &ValidationError{
-			Fieled: "password",
+			Field: "password",
 			Message: "password must contain lowercase",
 			Err: ErrPasswordNoLower,
 		}
@@ -147,7 +147,7 @@ func ValidatePassword(password string, policy PasswordPolicy) error {
 
 	if policy.RequireNumber && !hasNumber {
 		return &ValidationError{
-			Fieled: "password",
+			Field: "password",
 			Message: "password must contain number",
 		}
 	}

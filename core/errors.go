@@ -17,7 +17,7 @@ var (
 
   // auth errors
   ErrInvalidCredentials	= errors.New("invalid email or password")
-
+  ErrInvalidToken       = errors.New("invalid or expired token")
 	// token errors
 	ErrInvalidSession    = errors.New("invalid or expired token")
 	ErrSessionNotFound   = errors.New("session not found")
@@ -25,13 +25,13 @@ var (
 
 // validation error provides field level error details
 type ValidationError struct {
-	Fieled   string
+	Field   string
   Message  string
 	Err      error
 }
 
 func (e *ValidationError) Error() string {
-	return e.Fieled + ": " + e.Message
+	return e.Field + ": " + e.Message
 }
 
 func (e *ValidationError) Unwrap() error {

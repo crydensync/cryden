@@ -18,6 +18,7 @@ type Session struct {
 	RefreshToken  string
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
+	ExpiresAt     time.Time
 }
 
 // contains access and refresh tokens for a user
