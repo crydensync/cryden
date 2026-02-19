@@ -1,16 +1,17 @@
 package core
 
 import (
-    "context"
-		"fmt"
-    "time"
+  "context"
+	"fmt"
+  "time"
 )
 
 // Engine is the main authentication engine
 type Engine struct {
-    users     UserStore
-    sessions  SessionStore
-    config    Config
+ users     UserStore
+ sessions  SessionStore
+ hasher    Hasher
+ config    Config
 }
 
 // Config holds engine configuration
@@ -22,15 +23,21 @@ type Config struct {
 
 // New creates a new authentication engine
 func New(users UserStore, sessions SessionStore) *Engine {
-    return &Engine{
-        users:    users,
-        sessions: sessions,
-        config: Config{
-            PasswordPolicy: DefaultPasswordPolicy(),
-            JWTSecret:      "change-this-in-production", // TODO: make configurable
-            TokenExpiry:    15 * time.Minute,
-        },
-    }
+  return &Engine{
+    users:    users,
+    sessions: sessions,
+		hasher: NewBcryptHasher(10),
+    config: Config{
+      PasswordPolicy: DefaultPasswordPolicy(),
+      JWTSecret:      "change-this-in-production", // TODO: make configurable
+      TokenExpiry:    15 * time.Minute,
+    },
+  }
+}
+
+func (e *Engine) WithHasher(hasher Hasher) *Engine {
+    e.hasher = hasher
+    return e
 }
 
 // SignUp creates a new user account
@@ -55,7 +62,8 @@ func (e *Engine) SignUp(ctx context.Context, email, password string) (*User, err
     }
     
     // 4. Hash password
-    hash, err := HashPassword(password)
+   // hash, err := HashPassword(password)
+	 hash, err := e.hasher.Hash(password)
     if err != nil {
         return nil, err
     }
@@ -79,11 +87,17 @@ func (e *Engine) Login(ctx context.Context, email, password string) (*TokenPair,
         }
         return nil, err
     }
+
+// 2. Check password - USE HASHER!
+    if err := e.hasher.Compare(password, user.PasswordHash); err != nil {
+        return nil, err
+    }
     
     // 2. Check password
-    if err := CheckPassword(password, user.PasswordHash); err != nil {
-        return nil, ErrInvalidCredentials
-    }
+  //  if err := CheckPassword(password, user.PasswordHash); 
+//	err != nil {
+ //    return nil, ErrInvalidCredentials
+//  }
     
     // 3. Create session
     session, err := e.sessions.Create(ctx, user.ID)
