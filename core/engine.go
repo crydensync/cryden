@@ -42,33 +42,32 @@ func (e *Engine) WithHasher(hasher Hasher) *Engine {
 
 // SignUp creates a new user account
 func (e *Engine) SignUp(ctx context.Context, email, password string) (*User, error) {
-    // 1. Validate email
+    // Validate email
     if err := ValidateEmail(email); err != nil {
         return nil, err
     }
     
-    // 2. Validate password
+    // Validate password
     if err := ValidatePassword(password, e.config.PasswordPolicy); err != nil {
         return nil, err
     }
     
-    // 3. Check if user already exists
+    // Check if user already exists
     existing, err := e.users.GetByEmail(ctx, email)
     if err != nil && err != ErrUserNotFound {
-        return nil, err // Real error
+        return nil, err 
     }
     if existing != nil {
         return nil, ErrUserExists
     }
     
-    // 4. Hash password
-   // hash, err := HashPassword(password)
+    // Hash password
 	 hash, err := e.hasher.Hash(password)
     if err != nil {
         return nil, err
     }
     
-    // 5. Create user
+    // Create user
     user, err := e.users.Create(ctx, email, hash)
     if err != nil {
         return nil, err
@@ -79,7 +78,7 @@ func (e *Engine) SignUp(ctx context.Context, email, password string) (*User, err
 
 // Login authenticates a user and returns tokens
 func (e *Engine) Login(ctx context.Context, email, password string) (*TokenPair, error) {
-    // 1. Find user
+    // Find user
     user, err := e.users.GetByEmail(ctx, email)
     if err != nil {
         if err == ErrUserNotFound {
@@ -88,26 +87,20 @@ func (e *Engine) Login(ctx context.Context, email, password string) (*TokenPair,
         return nil, err
     }
 
-// 2. Check password - USE HASHER!
+// Check password - USE HASHER
     if err := e.hasher.Compare(password, user.PasswordHash); err != nil {
         return nil, err
     }
     
-    // 2. Check password
-  //  if err := CheckPassword(password, user.PasswordHash); 
-//	err != nil {
- //    return nil, ErrInvalidCredentials
-//  }
-    
-    // 3. Create session
+    // Create session
     session, err := e.sessions.Create(ctx, user.ID)
     if err != nil {
         return nil, err
     }
     
-    // 4. Generate tokens (simplified for now)
+    // Generate tokens (simplified for now)
     tokens := &TokenPair{
-        AccessToken:  "jwt_" + generateID(),  // We'll make real JWT later
+        AccessToken:  "jwt_" + generateID(),  // Will make real JWT later
         RefreshToken: session.RefreshToken,
     }
     
