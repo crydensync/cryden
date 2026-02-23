@@ -4,7 +4,8 @@ package tests
 import (
     "context"
     "testing"
-    
+    "time"
+
     "github.com/raymondproguy/credensync/core"
     "github.com/raymondproguy/credensync/stores/memory"
 )
@@ -122,7 +123,7 @@ func TestLogin(t *testing.T) {
     }
     
     t.Run("valid login", func(t *testing.T) {
-        tokens, err := engine.Login(ctx, "login@example.com", "Password123")
+       tokens, _, err := engine.Login(ctx, "login@example.com", "Password123")
         
         if err != nil {
             t.Errorf("Expected no error, got %v", err)
@@ -142,7 +143,7 @@ func TestLogin(t *testing.T) {
     })
     
     t.Run("wrong password", func(t *testing.T) {
-        _, err := engine.Login(ctx, "login@example.com", "wrongpassword")
+       _, _, err := engine.Login(ctx, "login@example.com", "wrongpassword")
         
         if err != core.ErrInvalidCredentials {
             t.Errorf("Expected ErrInvalidCredentials, got %v", err)
@@ -150,10 +151,59 @@ func TestLogin(t *testing.T) {
     })
     
     t.Run("nonexistent user", func(t *testing.T) {
-        _, err := engine.Login(ctx, "nonexistent@example.com", "Password123")
+       _, _, err := engine.Login(ctx, "nonexistent@example.com", "Password123")
         
         if err != core.ErrInvalidCredentials {
             t.Errorf("Expected ErrInvalidCredentials, got %v", err)
+        }
+    })
+}
+
+
+func TestLoginRateLimiting(t *testing.T) {
+    // Setup
+   userStore := memory.NewUserStore()
+   sessionStore := memory.NewSessionStore()
+   ctx := context.Background()
+    
+    // Create engine with strict rate limit (2 per minute)
+    engine := core.New(userStore, sessionStore)
+    limiter := core.NewMemoryRateLimiter(2, time.Minute)
+    engine.WithRateLimiter(limiter)
+    
+    // Create a test user
+    _, err := engine.SignUp(ctx, "ratelimit@example.com", "Password123")
+    if err != nil {
+        t.Fatalf("Failed to create user: %v", err)
+    }
+    
+    t.Run("first two attempts allowed", func(t *testing.T) {
+        // First attempt
+        _, result, err := engine.Login(ctx, "ratelimit@example.com", "Password123")
+        if err != nil {
+            t.Errorf("First login failed: %v", err)
+        }
+        if result.Remaining != 1 {
+            t.Errorf("Expected remaining 1, got %d", result.Remaining)
+        }
+        
+        // Second attempt
+        _, result, err = engine.Login(ctx, "ratelimit@example.com", "Password123")
+        if err != nil {
+            t.Errorf("Second login failed: %v", err)
+        }
+        if result.Remaining != 0 {
+            t.Errorf("Expected remaining 0, got %d", result.Remaining)
+        }
+    })
+    
+    t.Run("third attempt blocked", func(t *testing.T) {
+        _, result, err := engine.Login(ctx, "ratelimit@example.com", "Password123")
+        if err != core.ErrTooManyAttempts {
+            t.Errorf("Expected ErrTooManyAttempts, got %v", err)
+        }
+        if result.Allowed {
+            t.Error("Expected not allowed")
         }
     })
 }
