@@ -26,7 +26,7 @@ type RateLimiter interface {
 // MemoryRateLimiter implements RateLimiter in memory
 type MemoryRateLimiter struct {
 	mu          sync.RWMutex 
-	attemps     map[string][]time.Time
+	attempts    map[string][]time.Time
 	limit       int
 	window      time.Duration
 }
@@ -34,7 +34,7 @@ type MemoryRateLimiter struct {
 // NewMemoryRateLimiter creates new memory rate limiter 
 func NewMemoryRateLimiter(limit int, window time.Duration) *MemoryRateLimiter {
 	return &MemoryRateLimiter{
-		attemps:  make(map[string][]time.Time),
+		attempts:  make(map[string][]time.Time),
 		limit:    limit,
 		window:   window,
 	}
@@ -49,16 +49,16 @@ func (r *MemoryRateLimiter) Allow(ctx context.Context, key string) (LimitResult,
 	cutoff := now.Add(-r.window)
 
 	// Get attemps for this key 
-	attemps := r.attemps[key]
+	attempts := r.attempts[key]
 
 	// Keep attemps only whithin the window 
 	valid := make([]time.Time, 0)
-	for _, t := range attemps {
+	for _, t := range attempts {
 		if t.After(cutoff) {
 			valid = append(valid, t)
 		}
 	} 
-	
+
 	// Check if over limit
 	if len(valid) >= r.limit {
 	// Calculate when the oldest attempt expires 
@@ -73,9 +73,9 @@ func (r *MemoryRateLimiter) Allow(ctx context.Context, key string) (LimitResult,
   	}, nil
 	}
 
-	// Add this attemps
+	// Add this attempts
 	valid = append(valid, now)
-	r.attemps[key] = valid
+	r.attempts[key] = valid
 
 	return LimitResult {
 		Allowed:   true,
@@ -90,7 +90,7 @@ func(r *MemoryRateLimiter) Reset(ctx context.Context, key string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	delete(r.attemps, key)
+	delete(r.attempts, key)
 	return nil
 }
 

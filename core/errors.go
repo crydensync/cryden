@@ -15,6 +15,9 @@ var (
 	ErrPasswordNoLower   = errors.New("password must contain a lowercase letter")
 	ErrPasswordNoNumber  = errors.New("password must contain a number")
 
+  // Rate limit errors 
+  ErrTooManyAttempts = errors.New("too many attempts, please try again later")
+
   // auth errors
   ErrInvalidCredentials	= errors.New("invalid email or password")
   ErrInvalidToken       = errors.New("invalid or expired token")

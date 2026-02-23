@@ -8,10 +8,11 @@ import (
 
 // Engine is the main authentication engine
 type Engine struct {
- users     UserStore
- sessions  SessionStore
- hasher    Hasher
- config    Config
+ users       UserStore
+ sessions    SessionStore
+ hasher      Hasher
+ rateLimiter RateLimiter 
+ config      Config
 }
 
 // Config holds engine configuration
@@ -27,6 +28,7 @@ func New(users UserStore, sessions SessionStore) *Engine {
     users:    users,
     sessions: sessions,
 		hasher: NewBcryptHasher(10),
+		rateLimiter: NewMemoryRateLimiter(5, time.Minute),	  // 5 attempts per minute 
     config: Config{
       PasswordPolicy: DefaultPasswordPolicy(),
       JWTSecret:      "change-this-in-production", // TODO: make configurable
@@ -37,6 +39,11 @@ func New(users UserStore, sessions SessionStore) *Engine {
 
 func (e *Engine) WithHasher(hasher Hasher) *Engine {
     e.hasher = hasher
+    return e
+}
+
+func (e *Engine) WithRateLimiter(limiter RateLimiter) *Engine {
+    e.rateLimiter = limiter
     return e
 }
 
@@ -77,26 +84,42 @@ func (e *Engine) SignUp(ctx context.Context, email, password string) (*User, err
 }
 
 // Login authenticates a user and returns tokens
-func (e *Engine) Login(ctx context.Context, email, password string) (*TokenPair, error) {
+func (e *Engine) Login(ctx context.Context, email, password string) (*TokenPair, *LimitResult, error) {
+	key := "login:" + getClientIP(ctx)
+
+	// Check rate rate limit 
+	result, err := e.rateLimiter.Allow(ctx, key)
+		if err != nil {
+			return nil, &result, err
+		}
+ fmt.Printf("Login attempt - Allowed: %v, Remaining: %d\n", result.Allowed, result.Remaining)	
+
+	if !result.Allowed {
+		return nil, &result, ErrTooManyAttempts
+	}
+
     // Find user
     user, err := e.users.GetByEmail(ctx, email)
     if err != nil {
         if err == ErrUserNotFound {
-            return nil, ErrInvalidCredentials // Don't reveal user doesn't exist
+            return nil, &result, ErrInvalidCredentials // Don't reveal user doesn't exist
         }
-        return nil, err
+        return nil, &result, err
     }
 
 // Check password - USE HASHER
     if err := e.hasher.Compare(password, user.PasswordHash); err != nil {
-        return nil, err
+        return nil, &result, ErrInvalidCredentials
     }
     
     // Create session
     session, err := e.sessions.Create(ctx, user.ID)
     if err != nil {
-        return nil, err
+        return nil, &result, err
     }
+
+		// On successful login, reset rate limit
+    //e.rateLimiter.Reset(ctx, key)
     
     // Generate tokens (simplified for now)
     tokens := &TokenPair{
@@ -104,10 +127,18 @@ func (e *Engine) Login(ctx context.Context, email, password string) (*TokenPair,
         RefreshToken: session.RefreshToken,
     }
     
-    return tokens, nil
+    return tokens, &result, nil
 }
 
 // Helper to generate IDs (move to a utils file later)
 func generateID() string {
     return fmt.Sprintf("%d", time.Now().UnixNano())
 }
+
+// getClientIP extracts IP from context (simplified for now)
+func getClientIP(ctx context.Context) string {
+	// For now, return a fixed string
+  // Later, we'll extract from context
+ return "unknown-ip"
+}
+
