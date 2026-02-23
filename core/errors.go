@@ -20,10 +20,12 @@ var (
 
   // auth errors
   ErrInvalidCredentials	= errors.New("invalid email or password")
-  ErrInvalidToken       = errors.New("invalid or expired token")
+  ErrInvalidToken      = errors.New("invalid or expired token")
 	// token errors
 	ErrInvalidSession    = errors.New("invalid or expired token")
 	ErrSessionNotFound   = errors.New("session not found")
+	// Audit errors
+ ErrAuditLogFailed     = errors.New("Failed to write audit logs")
 )
 
 // validation error provides field level error details
