@@ -8,7 +8,7 @@ type Hasher interface {
 	Compare(password, hash string) error
 }
 
-// BcryptHasher implement Hasher using bcrypt 
+// BcryptHasher implement Hasher using bcrypt
 type BcryptHasher struct {
 	Cost int
 }
@@ -22,7 +22,7 @@ func NewBcryptHasher(cost int) *BcryptHasher {
 
 func (h *BcryptHasher) Hash(password string) (string, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), h.Cost)
-return string(hash), err
+	return string(hash), err
 }
 
 func (h *BcryptHasher) Compare(password, hash string) error {
@@ -41,8 +41,8 @@ func (h *MockHasher) Hash(password string) (string, error) {
 }
 
 func (h *MockHasher) Compare(password, hash string) error {
- if password == hash {
-    return nil
- }
- return ErrInvalidCredentials
+	if password == hash {
+		return nil
+	}
+	return ErrInvalidCredentials
 }

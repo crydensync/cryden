@@ -24,31 +24,31 @@ const (
 
 // AuditEntry represents a single audit log entry
 type AuditEntry struct {
-	Timestamp   time.Time
-	UserID      string
-	Action      AuditAction 
-	Status      string
-	Error       string
-	IPAddress   string
-	UserAgent   string
-	Metadata    map[string]interface{}
+	Timestamp time.Time
+	UserID    string
+	Action    AuditAction
+	Status    string
+	Error     string
+	IPAddress string
+	UserAgent string
+	Metadata  map[string]interface{}
 }
 
 // AuditLogger defines how to log events
 type AuditLogger interface {
-	Log(ctx context.Context, entry AuditEntry) error 
-	Close() error 
+	Log(ctx context.Context, entry AuditEntry) error
+	Close() error
 }
 
 // ConsoleAuditLogger prints to the console
-type ConsoleAuditLogger struct {}
+type ConsoleAuditLogger struct{}
 
 func NewConsoleAuditLogger() *ConsoleAuditLogger {
 	return &ConsoleAuditLogger{}
 }
 func (l *ConsoleAuditLogger) Log(ctx context.Context, entry AuditEntry) error {
-  timestamp := entry.Timestamp.Format("2006-01-02 15:04:05")
-  fmt.Printf("[AUDIT] %s | User: %s | Action: %s | Status: %s\n", timestamp, entry.UserID, entry.Action, entry.Status)
+	timestamp := entry.Timestamp.Format("2006-01-02 15:04:05")
+	fmt.Printf("[AUDIT] %s | User: %s | Action: %s | Status: %s\n", timestamp, entry.UserID, entry.Action, entry.Status)
 
 	if entry.Error != "" {
 		fmt.Printf(" Error: %s\n", entry.Error)
@@ -59,8 +59,8 @@ func (l *ConsoleAuditLogger) Log(ctx context.Context, entry AuditEntry) error {
 	if len(entry.Metadata) > 0 {
 		fmt.Printf(" Metadata: %v\n", entry.Metadata)
 	}
- 
- return nil
+
+	return nil
 }
 
 func (l *ConsoleAuditLogger) Close() error {
@@ -84,7 +84,7 @@ func (l *NoopAuditLogger) Close() error {
 
 // FileAuditLogger writes to a file
 type FileAuditLogger struct {
-	filePath  string
+	filePath string
 }
 
 func NewFileAuditLogger(filePath string) *FileAuditLogger {
@@ -92,12 +92,12 @@ func NewFileAuditLogger(filePath string) *FileAuditLogger {
 }
 
 func (l *FileAuditLogger) Log(ctx context.Context, entry AuditEntry) error {
-  timestamp := entry.Timestamp.Format("2006-01-02 15:04:05")
-  line := fmt.Sprintf("%s | %s | %s | %s | %s\n", timestamp, entry.UserID, entry.Action, entry.Error, entry.IPAddress)
+	timestamp := entry.Timestamp.Format("2006-01-02 15:04:05")
+	line := fmt.Sprintf("%s | %s | %s | %s | %s\n", timestamp, entry.UserID, entry.Action, entry.Error, entry.IPAddress)
 
- fmt.Printf("[FILE AUDIT] %s", line)
+	fmt.Printf("[FILE AUDIT] %s", line)
 
-return nil
+	return nil
 }
 
 func (l *FileAuditLogger) Close() error {
