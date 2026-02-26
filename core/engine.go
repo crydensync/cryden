@@ -72,6 +72,13 @@ func (e *Engine) SignUp(ctx context.Context, email, password string) (*User, err
 		return nil, err
 	}
 	if existing != nil {
+		e.auditLogger.Log(ctx, AuditEntry{
+			Timestamp: time.Now(),
+			Action:    ActionSignUp,
+			Status:    "FAILED",
+			Error:     "email already exist",
+			Metadata:  map[string]interface{}{"email": email},
+		})
 		return nil, ErrUserExists
 	}
 
@@ -86,6 +93,13 @@ func (e *Engine) SignUp(ctx context.Context, email, password string) (*User, err
 	if err != nil {
 		return nil, err
 	}
+	e.auditLogger.Log(ctx, AuditEntry{
+		Timestamp: time.Now(),
+		UserID:    user.ID,
+		Action:    ActionSignUp,
+		Status:    "SUCCESS",
+		IPAddress: getClientIP(ctx),
+	})
 
 	return user, nil
 }
@@ -119,6 +133,13 @@ func (e *Engine) Login(ctx context.Context, email, password string) (*TokenPair,
 	user, err := e.users.GetByEmail(ctx, email)
 	if err != nil {
 		if err == ErrUserNotFound {
+			e.auditLogger.Log(ctx, AuditEntry{
+				Timestamp: time.Now(),
+				Action:    ActionSignInFailed,
+				Status:    "FAILED",
+				Error:     "user not found",
+				IPAddress: getClientIP(ctx),
+			})
 			return nil, &result, ErrInvalidCredentials // Don't reveal user doesn't exist
 		}
 		return nil, &result, err
@@ -126,6 +147,14 @@ func (e *Engine) Login(ctx context.Context, email, password string) (*TokenPair,
 
 	// Check password - USE HASHER
 	if err := e.hasher.Compare(password, user.PasswordHash); err != nil {
+		e.auditLogger.Log(ctx, AuditEntry{
+			Timestamp: time.Now(),
+			UserID:    user.ID,
+			Action:    ActionSignInFailed,
+			Status:    "FAILED",
+			Error:     "wrong password",
+			IPAddress: getClientIP(ctx),
+		})
 		return nil, &result, ErrInvalidCredentials
 	}
 
@@ -135,8 +164,13 @@ func (e *Engine) Login(ctx context.Context, email, password string) (*TokenPair,
 		return nil, &result, err
 	}
 
-	// On successful login, reset rate limit
-	//e.rateLimiter.Reset(ctx, key)
+	e.auditLogger.Log(ctx, AuditEntry{
+		Timestamp: time.Now(),
+		UserID:    user.ID,
+		Action:    ActionSignInSuccess,
+		Status:    "SUCCESS",
+		IPAddress: getClientIP(ctx),
+	})
 
 	// Generate tokens (simplified for now)
 	tokens := &TokenPair{
