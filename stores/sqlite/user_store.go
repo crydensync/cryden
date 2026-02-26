@@ -2,7 +2,7 @@ package sqlite
 
 import (
 	"context"
-	"database/sqlite"
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -17,7 +17,7 @@ type UserStore struct {
 
 // NewUserStore creates a new SQLite user store
 func NewUserStore(dbPath string) (*UserStore, error) {
-	db, err := SQLite.Open("sqlite3", dbPath)
+	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
