@@ -26,7 +26,7 @@ func NewUserStore() *UserStore {
 }
 
 func (s *UserStore) Close() error {
- return nil 
+	return nil
 }
 
 // Create stores a user

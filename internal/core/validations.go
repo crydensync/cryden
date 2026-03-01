@@ -102,7 +102,7 @@ func ValidatePassword(password string, policy PasswordPolicy) error {
 		return &ValidationError{
 			Field:   "password",
 			Message: "password too short",
-			Err:     ErrPasswordToShort,
+			Err:     ErrPasswordTooShort,
 		}
 	}
 

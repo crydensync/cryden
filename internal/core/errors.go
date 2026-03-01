@@ -9,7 +9,7 @@ var (
 	ErrInvalidEmail = errors.New("incorrect email format")
 
 	// password errors
-	ErrPasswordToShort  = errors.New("password must be at least 8 characters")
+	ErrPasswordTooShort = errors.New("password must be at least 8 characters")
 	ErrPasswordTooLong  = errors.New("password execceds maximum lenght")
 	ErrPasswordNoUpper  = errors.New("password must contain an uppercase letter")
 	ErrPasswordNoLower  = errors.New("password must contain a lowercase letter")

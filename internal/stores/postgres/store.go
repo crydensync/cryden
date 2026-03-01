@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	_ "github.com/lib/pq"
 	"github.com/crydensync/cryden/internal/core"
+	_ "github.com/lib/pq"
 )
 
 type UserStore struct {

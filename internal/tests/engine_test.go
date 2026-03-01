@@ -87,7 +87,7 @@ func TestSignUp(t *testing.T) {
 			password string
 			wantErr  error
 		}{
-			{"short", core.ErrPasswordToShort},
+			{"short", core.ErrPasswordTooShort},
 			{"onlylowercase", core.ErrPasswordNoUpper},
 			{"ONLYUPPERCASE", core.ErrPasswordNoLower},
 			{"NoNumbers", core.ErrPasswordNoNumber},
