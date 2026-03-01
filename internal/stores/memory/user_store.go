@@ -25,6 +25,10 @@ func NewUserStore() *UserStore {
 	}
 }
 
+func (s *UserStore) Close() error {
+ return nil 
+}
+
 // Create stores a user
 func (s *UserStore) Create(ctx context.Context, email, passwordHash string) (*core.User, error) {
 	s.mu.Lock()

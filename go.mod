@@ -1,4 +1,4 @@
-module github.com/raymondproguy/credensync
+module github.com/crydensync/cryden
 
 go 1.25.4
 
