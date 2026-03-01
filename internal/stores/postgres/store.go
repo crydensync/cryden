@@ -7,7 +7,7 @@ import (
 	"time"
 
 	_ "github.com/lib/pq"
-	"github.com/raymondproguy/credensync/core"
+	"github.com/crydensync/cryden/internal/core"
 )
 
 type UserStore struct {

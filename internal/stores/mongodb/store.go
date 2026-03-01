@@ -1,4 +1,3 @@
-// stores/mongodb/store.go
 package mongodb
 
 import (
@@ -6,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/raymondproguy/credensync/core"
+	"github.com/crydensync/cryden/internal/core"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"

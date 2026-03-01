@@ -5,11 +5,11 @@ import (
 	"os"
 	"testing"
 
-	"github.com/raymondproguy/credensync/core"
-	"github.com/raymondproguy/credensync/stores/memory"
-	"github.com/raymondproguy/credensync/stores/mongodb"
-	"github.com/raymondproguy/credensync/stores/postgres"
-	"github.com/raymondproguy/credensync/stores/sqlite"
+	"github.com/crydensync/cryden/internal/core"
+	"github.com/crydensync/cryden/internal/stores/memory"
+	"github.com/crydensync/cryden/internal/stores/mongodb"
+	"github.com/crydensync/cryden/internal/stores/postgres"
+	"github.com/crydensync/cryden/internal/stores/sqlite"
 )
 
 // TestUserStore runs the same tests for ALL implementations

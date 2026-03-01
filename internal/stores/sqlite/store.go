@@ -7,7 +7,7 @@ import (
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
-	"github.com/raymondproguy/credensync/core"
+	"github.com/crydensync/cryden/internal/core"
 )
 
 type UserStore struct {

@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/raymondproguy/credensync/core"
+	"github.com/crydensync/cryden/internal/core"
 )
 
 // UserStore implements core.userStore using in-memory map

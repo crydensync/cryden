@@ -1,7 +1,7 @@
 package tests
 
 import (
-	"github.com/raymondproguy/credensync/core"
+	"github.com/crydensync/cryden/internal/core"
 	"testing"
 )
 

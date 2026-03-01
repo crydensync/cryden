@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/raymondproguy/credensync/core"
-	"github.com/raymondproguy/credensync/stores/memory"
+	"github.com/crydensync/cryden/internal/core"
+	"github.com/crydensync/cryden/internal/stores/memory"
 )
 
 func TestMemoryUserStore(t *testing.T) {

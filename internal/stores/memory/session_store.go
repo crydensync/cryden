@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/raymondproguy/credensync/core"
+	"github.com/crydensync/cryden/internal/core"
 )
 
 // SessionStore implements core.SessionStore in memory

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/raymondproguy/credensync/core"
+	"github.com/crydensync/cryden/internal/core"
 )
 
 func TestMemoryRateLimiter(t *testing.T) {
