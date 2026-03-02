@@ -1,8 +1,8 @@
 package core
 
 import (
-	"time"
 	"github.com/golang-jwt/jwt/v5"
+	"time"
 )
 
 // User represents a user in the system
@@ -37,5 +37,3 @@ type Claims struct {
 	UserID string `json: "user_id"`
 	jwt.RegisteredClaims
 }
-
-

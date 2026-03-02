@@ -1,7 +1,6 @@
 package cryden
 
 import (
-
 	"github.com/crydensync/cryden/internal/core"
 	"github.com/crydensync/cryden/internal/stores/memory"
 	"github.com/crydensync/cryden/internal/stores/sqlite"

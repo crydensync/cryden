@@ -18,7 +18,7 @@ const (
 	ActionPasswordChange AuditAction = "PASSWORD_CHANGE"
 	ActionEmailChange    AuditAction = "EMAIL_CHANGE"
 	ActionAccountDelete  AuditAction = "ACCOUNT_DELETE"
-	ActionTokonRefresh   AuditAction = "TOKEN_REFRESH"
+	ActionTokenRefresh   AuditAction = "TOKEN_REFRESH"
 	ActionRateLimited    AuditAction = "RATE_LIMITED"
 )
 

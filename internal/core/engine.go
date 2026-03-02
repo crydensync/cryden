@@ -3,8 +3,8 @@ package core
 import (
 	"context"
 	"fmt"
-	"time"
 	"github.com/golang-jwt/jwt/v5"
+	"time"
 )
 
 // Engine is the main authentication engine
@@ -24,18 +24,18 @@ type Config struct {
 	AccessTokenTTL  time.Duration
 	RefreshTokenTTL time.Duration
 	Issuer          string
-	TokenExpiry    time.Duration
+	TokenExpiry     time.Duration
 }
 
-// DefautConfig returns sensible defaults 
+// DefautConfig returns sensible defaults
 func DefautConfig() Config {
 	return Config{
-	 PasswordPolicy: DefaultPasswordPolicy(),
-	 JWTSecret:      "change-this-in-production", // WARNING Change this!
-	 AccessTokenTTL: 15 * time.Minute,
-	 RefreshTokenTTL: 7 * 24 * time.Hour,
-	 Issuer:          "cryden",
-  }
+		PasswordPolicy:  DefaultPasswordPolicy(),
+		JWTSecret:       "change-this-in-production", // WARNING Change this!
+		AccessTokenTTL:  15 * time.Minute,
+		RefreshTokenTTL: 7 * 24 * time.Hour,
+		Issuer:          "cryden",
+	}
 }
 
 // New creates a new authentication engine
@@ -46,7 +46,7 @@ func New(users UserStore, sessions SessionStore) *Engine {
 		hasher:      NewBcryptHasher(10),
 		rateLimiter: NewMemoryRateLimiter(5, time.Minute), // 5 attempts per minute
 		auditLogger: NewConsoleAuditLogger(),              //default
-		config: DefautConfig(),
+		config:      DefautConfig(),
 	}
 }
 
@@ -175,10 +175,11 @@ func (e *Engine) Login(ctx context.Context, email, password string) (*TokenPair,
 	}
 
 	// Create session
-	session, err := e.sessions.Create(ctx, user.ID)
+	/*session err := e.sessions.Create(ctx, user.ID)
 	if err != nil {
 		return nil, &result, err
 	}
+	*/
 
 	e.auditLogger.Log(ctx, AuditEntry{
 		Timestamp: time.Now(),
@@ -190,8 +191,8 @@ func (e *Engine) Login(ctx context.Context, email, password string) (*TokenPair,
 
 	// Generate tokens (simplified for now)
 	//tokens := &TokenPair{
-		//AccessToken:  "jwt_" + generateID(), // Will make real JWT later
-		//RefreshToken: session.RefreshToken,
+	//AccessToken:  "jwt_" + generateID(), // Will make real JWT later
+	//RefreshToken: session.RefreshToken,
 	//}
 
 	tokens, err := e.generateTokens(ctx, user.ID)
@@ -199,15 +200,15 @@ func (e *Engine) Login(ctx context.Context, email, password string) (*TokenPair,
 		return nil, &result, err
 	}
 
-	// Reset rate limit on SUCCESS 
+	// Reset rate limit on SUCCESS
 	e.rateLimiter.Reset(ctx, key)
 
 	return tokens, &result, nil
 }
 
-// generateTokens creates JWT access token and refresh token 
+// generateTokens creates JWT access token and refresh token
 func (e *Engine) generateTokens(ctx context.Context, userID string) (*TokenPair, error) {
-	// Generate JWT access token 
+	// Generate JWT access token
 	now := time.Now()
 	claims := Claims{
 		UserID: userID,
@@ -217,7 +218,7 @@ func (e *Engine) generateTokens(ctx context.Context, userID string) (*TokenPair,
 			NotBefore: jwt.NewNumericDate(now),
 			Issuer:    e.config.Issuer,
 			Subject:   userID,
-			ID:        generateID(), 
+			ID:        generateID(),
 		},
 	}
 
@@ -227,14 +228,14 @@ func (e *Engine) generateTokens(ctx context.Context, userID string) (*TokenPair,
 		return nil, fmt.Errorf("failed to sign access token: %w", err)
 	}
 
-	// Create session with refresh token 
+	// Create session with refresh token
 	session, err := e.sessions.Create(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create session: %w", err)
 	}
 
 	return &TokenPair{
-		AccessToken: accessToken,
+		AccessToken:  accessToken,
 		RefreshToken: session.RefreshToken,
 		TokenType:    "Bearer",
 		ExpiresIn:    int64(e.config.AccessTokenTTL.Seconds()),
@@ -243,10 +244,10 @@ func (e *Engine) generateTokens(ctx context.Context, userID string) (*TokenPair,
 
 // VerifyToken validates a JWT  access token
 func (e *Engine) VerifyToken(tokenString string) (*Claims, error) {
-	token, err := jwt.ParseWithCliams(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpedted signing method: %v", token.Header["alg"])
-		} 
+		}
 		return []byte(e.config.JWTSecret), nil
 	})
 
@@ -254,43 +255,43 @@ func (e *Engine) VerifyToken(tokenString string) (*Claims, error) {
 		return nil, fmt.Errorf("faied to parse token: %w", err)
 	}
 
-	if claims, ok := token.Claims.(*Claims); ok &&token.Valid {
+	if claims, ok := token.Claims.(*Claims); ok && token.Valid {
 		return claims, nil
 	}
 	return nil, ErrInvalidToken
 }
 
 func (e *Engine) RefreshToken(ctx context.Context, refreshToken string) (*TokenPair, error) {
-    // Find session
-    session, err := e.sessions.GetByRefreshToken(ctx, refreshToken)
-    if err != nil {
-        return nil, ErrInvalidToken
-    }
+	// Find session
+	session, err := e.sessions.GetByRefreshToken(ctx, refreshToken)
+	if err != nil {
+		return nil, ErrInvalidToken
+	}
 
-    // Check if expired
-    if time.Now().After(session.ExpiresAt) {
-        e.sessions.Revoke(ctx, session.ID)
-        return nil, ErrInvalidToken
-    }
+	// Check if expired
+	if time.Now().After(session.ExpiresAt) {
+		e.sessions.Revoke(ctx, session.ID)
+		return nil, ErrInvalidToken
+	}
 
-    // Generate new tokens
-    tokens, err := e.generateTokens(ctx, session.UserID)
-    if err != nil {
-        return nil, err
-    }
+	// Generate new tokens
+	tokens, err := e.generateTokens(ctx, session.UserID)
+	if err != nil {
+		return nil, err
+	}
 
-    // Revoke old session (security - token rotation)
-    e.sessions.Revoke(ctx, session.ID)
+	// Revoke old session (security - token rotation)
+	e.sessions.Revoke(ctx, session.ID)
 
-    // Audit
-    e.auditLogger.Log(ctx, AuditEntry{
-        Timestamp: time.Now(),
-        UserID:    session.UserID,
-        Action:    ActionTokenRefresh,
-        Status:    "SUCCESS",
-    })
+	// Audit
+	e.auditLogger.Log(ctx, AuditEntry{
+		Timestamp: time.Now(),
+		UserID:    session.UserID,
+		Action:    ActionTokenRefresh,
+		Status:    "SUCCESS",
+	})
 
-    return tokens, nil
+	return tokens, nil
 }
 
 // Helper to generate IDs (move to a utils file later)
@@ -307,9 +308,9 @@ func getClientIP(ctx context.Context) string {
 
 // Authenticate extracts user ID from token
 func (e *Engine) Authenticate(tokenString string) (string, error) {
-    claims, err := e.VerifyToken(tokenString)
-    if err != nil {
-        return "", err
-    }
-    return claims.UserID, nil
+	claims, err := e.VerifyToken(tokenString)
+	if err != nil {
+		return "", err
+	}
+	return claims.UserID, nil
 }
