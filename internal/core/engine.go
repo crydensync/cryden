@@ -336,3 +336,20 @@ func (e *Engine) Logout(ctx context.Context, refreshToken string) error {
 
     return nil
 }
+
+// LogoutAll revokes ALL sessions for a user
+func (e *Engine) LogoutAll(ctx context.Context, userID string) error {
+    if err := e.sessions.RevokeAllForUser(ctx, userID); err != nil {
+        return err
+    }
+
+    e.auditLogger.Log(ctx, AuditEntry{
+        Timestamp: time.Now(),
+        UserID:    userID,
+        Action:    ActionSignOutAll,
+        Status:    "SUCCESS",
+        IPAddress: getClientIP(ctx),
+    })
+
+    return nil
+}
