@@ -206,3 +206,32 @@ func TestLoginRateLimiting(t *testing.T) {
 		}
 	})
 }
+
+func TestLogout(t *testing.T) {
+    userStore := memory.NewUserStore()
+    sessionStore := memory.NewSessionStore()
+    engine := core.New(userStore, sessionStore)
+    ctx := context.Background()
+
+    engine.SignUp(ctx, "logout@example.com", "Password123")
+    tokens, _, _ := engine.Login(ctx, "logout@example.com", "Password123")
+
+    t.Run("valid logout", func(t *testing.T) {
+        err := engine.Logout(ctx, tokens.RefreshToken)
+        if err != nil {
+            t.Errorf("Logout failed: %v", err)
+        }
+
+        _, err = engine.sessions.GettByRefreshToken(ctx, tokens.RefreshToken)
+        if err != core.ErrSessionNotFound {
+            t.Errorf("Expected session not found, got %v", err)
+        }
+    })
+
+    t.Run("invalid token", func(t *testing.T) {
+        err := engine.Logout(ctx, "invalid")
+        if err != core.ErrInvalidToken {
+            t.Errorf("Expected ErrInvalidToken, got %v", err)
+        }
+    })
+}
