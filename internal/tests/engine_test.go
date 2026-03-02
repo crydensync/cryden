@@ -235,3 +235,39 @@ func TestLogout(t *testing.T) {
         }
     })
 }
+
+func TestLogoutAll(t *testing.T) {
+    userStore := memory.NewUserStore()
+    sessionStore := memory.NewSessionStore()
+    engine := core.New(userStore, sessionStore)
+    ctx := context.Background()
+
+    engine.SignUp(ctx, "logoutall@example.com", "Password123")
+    
+    // Create multiple sessions
+    tokens1, _, _ := engine.Login(ctx, "logoutall@example.com", "Password123")
+    tokens2, _, _ := engine.Login(ctx, "logoutall@example.com", "Password123")
+    tokens3, _, _ := engine.Login(ctx, "logoutall@example.com", "Password123")
+
+    t.Run("logout all devices", func(t *testing.T) {
+        user, _ := engine.users.GetByEmail(ctx, "logoutall@example.com")
+        err := engine.LogoutAll(ctx, user.ID)
+        if err != nil {
+            t.Errorf("LogoutAll failed: %v", err)
+        }
+
+        // All sessions should be gone
+        _, err = engine.sessions.GetByRefreshToken(ctx, tokens1.RefreshToken)
+        if err != core.ErrSessionNotFound {
+            t.Error("First session still exists")
+        }
+        _, err = engine.sessions.GetByRefreshToken(ctx, tokens2.RefreshToken)
+        if err != core.ErrSessionNotFound {
+            t.Error("Second session still exists")
+        }
+        _, err = engine.sessions.GetByRefreshToken(ctx, tokens3.RefreshToken)
+        if err != core.ErrSessionNotFound {
+            t.Error("Third session still exists")
+        }
+    })
+}
