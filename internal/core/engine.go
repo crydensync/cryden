@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"time"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 // Engine is the main authentication engine
@@ -18,9 +19,23 @@ type Engine struct {
 
 // Config holds engine configuration
 type Config struct {
-	PasswordPolicy PasswordPolicy
-	JWTSecret      string
+	PasswordPolicy  PasswordPolicy
+	JWTSecret       string
+	AccessTokenTTL  time.Duration
+	RefreshTokenTTL time.Duration
+	Issuer          string
 	TokenExpiry    time.Duration
+}
+
+// DefautConfig returns sensible defaults 
+func DefautConfig() Config {
+	return Config{
+	 PasswordPolicy: DefaultPasswordPolicy(),
+	 JWTSecret:      "change-this-in-production", // WARNING Change this!
+	 AccessTokenTTL: 15 * time.Minute,
+	 RefreshTokenTTL: 7 * 24 * time.Hour,
+	 Issuer:          "cryden",
+  }
 }
 
 // New creates a new authentication engine
@@ -31,12 +46,13 @@ func New(users UserStore, sessions SessionStore) *Engine {
 		hasher:      NewBcryptHasher(10),
 		rateLimiter: NewMemoryRateLimiter(5, time.Minute), // 5 attempts per minute
 		auditLogger: NewConsoleAuditLogger(),              //default
-		config: Config{
-			PasswordPolicy: DefaultPasswordPolicy(),
-			JWTSecret:      "change-this-in-production", // TODO: make configurable
-			TokenExpiry:    15 * time.Minute,
-		},
+		config: DefautConfig(),
 	}
+}
+
+func (e *Engine) WithJWTSecret(secret string) *Engine {
+	e.config.JWTSecret = secret
+	return e
 }
 
 func (e *Engine) WithHasher(hasher Hasher) *Engine {
@@ -180,6 +196,9 @@ func (e *Engine) Login(ctx context.Context, email, password string) (*TokenPair,
 
 	return tokens, &result, nil
 }
+
+// generateTokens creates JWT access token and refresh token 
+func (e *Engine) generateTokens(ctx context.Context, userID string) (*TokenPair, eror) {}
 
 // Helper to generate IDs (move to a utils file later)
 func generateID() string {
