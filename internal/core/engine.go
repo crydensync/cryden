@@ -198,7 +198,47 @@ func (e *Engine) Login(ctx context.Context, email, password string) (*TokenPair,
 }
 
 // generateTokens creates JWT access token and refresh token 
-func (e *Engine) generateTokens(ctx context.Context, userID string) (*TokenPair, eror) {}
+func (e *Engine) generateTokens(ctx context.Context, userID string) (*TokenPair, error) {
+	// Generate JWT access token 
+	now := time.Now()
+	claims := Claims{
+		UserID: userID,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(now.Add(e.config.AccessTokenTTL)),
+			IssuedAt:  jwt.NewNumericDate(now),
+			NotBefore: jwt.NewNumericDate(now),
+			Issuer:    e.config.Issuer,
+			Subject:   userID,
+			ID:        generateID(), 
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	accessToken, err := token.SignedString([]byte(e.config.JWTSecret))
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign access token: %w", err)
+	}
+
+	// Create session with refresh token 
+	session, err := e.sessions.Create(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create session: %w", err)
+	}
+
+	return &TokenPair{
+		AccessToken: accessToken,
+		RefreshToken: session.RefreshToken,
+		TokenType:    "Bearer",
+		ExpiresIn:    int64(e.config.AccessTokenTTL.Seconds()),
+	}, nil
+}
+
+// VerifyToken validates a JWT  access token
+func (e *Engine) VerifyToken(tokenString string) (*Claims, error) {
+	token, err := jwt.ParseWithCliams(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token 
+	})
+}
 
 // Helper to generate IDs (move to a utils file later)
 func generateID() string {
