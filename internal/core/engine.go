@@ -260,6 +260,39 @@ func (e *Engine) VerifyToken(tokenString string) (*Claims, error) {
 	return nil, ErrInvalidToken
 }
 
+func (e *Engine) RefreshToken(ctx context.Context, refreshToken string) (*TokenPair, error) {
+    // Find session
+    session, err := e.sessions.GetByRefreshToken(ctx, refreshToken)
+    if err != nil {
+        return nil, ErrInvalidToken
+    }
+
+    // Check if expired
+    if time.Now().After(session.ExpiresAt) {
+        e.sessions.Revoke(ctx, session.ID)
+        return nil, ErrInvalidToken
+    }
+
+    // Generate new tokens
+    tokens, err := e.generateTokens(ctx, session.UserID)
+    if err != nil {
+        return nil, err
+    }
+
+    // Revoke old session (security - token rotation)
+    e.sessions.Revoke(ctx, session.ID)
+
+    // Audit
+    e.auditLogger.Log(ctx, AuditEntry{
+        Timestamp: time.Now(),
+        UserID:    session.UserID,
+        Action:    ActionTokenRefresh,
+        Status:    "SUCCESS",
+    })
+
+    return tokens, nil
+}
+
 // Helper to generate IDs (move to a utils file later)
 func generateID() string {
 	return fmt.Sprintf("%d", time.Now().UnixNano())
@@ -270,4 +303,13 @@ func getClientIP(ctx context.Context) string {
 	// For now, return a fixed string
 	// Later, we'll extract from context
 	return "127.0.0.1"
+}
+
+// Authenticate extracts user ID from token
+func (e *Engine) Authenticate(tokenString string) (string, error) {
+    claims, err := e.VerifyToken(tokenString)
+    if err != nil {
+        return "", err
+    }
+    return claims.UserID, nil
 }
