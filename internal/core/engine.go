@@ -201,7 +201,7 @@ func (e *Engine) Login(ctx context.Context, email, password string) (*TokenPair,
 	}
 
 	// Reset rate limit on SUCCESS
-	e.rateLimiter.Reset(ctx, key)
+	//e.rateLimiter.Reset(ctx, key)
 
 	return tokens, &result, nil
 }
