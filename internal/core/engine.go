@@ -189,10 +189,18 @@ func (e *Engine) Login(ctx context.Context, email, password string) (*TokenPair,
 	})
 
 	// Generate tokens (simplified for now)
-	tokens := &TokenPair{
-		AccessToken:  "jwt_" + generateID(), // Will make real JWT later
-		RefreshToken: session.RefreshToken,
+	//tokens := &TokenPair{
+		//AccessToken:  "jwt_" + generateID(), // Will make real JWT later
+		//RefreshToken: session.RefreshToken,
+	//}
+
+	tokens, err := e.generateTokens(ctx, user.ID)
+	if err != nil {
+		return nil, &result, err
 	}
+
+	// Reset rate limit on SUCCESS 
+	e.rateLimiter.Reset(ctx, key)
 
 	return tokens, &result, nil
 }
@@ -236,8 +244,20 @@ func (e *Engine) generateTokens(ctx context.Context, userID string) (*TokenPair,
 // VerifyToken validates a JWT  access token
 func (e *Engine) VerifyToken(tokenString string) (*Claims, error) {
 	token, err := jwt.ParseWithCliams(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token 
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpedted signing method: %v", token.Header["alg"])
+		} 
+		return []byte(e.config.JWTSecret), nil
 	})
+
+	if err != nil {
+		return nil, fmt.Errorf("faied to parse token: %w", err)
+	}
+
+	if claims, ok := token.Claims.(*Claims); ok &&token.Valid {
+		return claims, nil
+	}
+	return nil, ErrInvalidToken
 }
 
 // Helper to generate IDs (move to a utils file later)
