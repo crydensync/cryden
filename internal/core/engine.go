@@ -314,3 +314,25 @@ func (e *Engine) Authenticate(tokenString string) (string, error) {
 	}
 	return claims.UserID, nil
 }
+
+// Logout revokes the current session
+func (e *Engine) Logout(ctx context.Context, refreshToken string) error {
+    session, err := e.sessions.GetByRefreshToken(ctx, refreshToken)
+    if err != nil {
+        return ErrInvalidToken
+    }
+
+    if err := e.sessions.Revoke(ctx, session.ID); err != nil {
+        return err
+    }
+
+    e.auditLogger.Log(ctx, AuditEntry{
+        Timestamp: time.Now(),
+        UserID:    session.UserID,
+        Action:    ActionSignOut,
+        Status:    "SUCCESS",
+        IPAddress: getClientIP(ctx),
+    })
+
+    return nil
+}
