@@ -403,3 +403,38 @@ func (e *Engine) ChangePassword(ctx context.Context, userID, oldPassword, newPas
 
     return nil
 }
+
+// ChangeEmail updates user's email
+func (e *Engine) ChangeEmail(ctx context.Context, userID, newEmail string) error {
+    // 1. Validate email
+    if err := ValidateEmail(newEmail); err != nil {
+        return err
+    }
+
+    // 2. Check if email already exists
+    existing, err := e.users.GetByEmail(ctx, newEmail)
+    if err != nil && err != ErrUserNotFound {
+        return err
+    }
+    if existing != nil {
+        return ErrUserExists
+    }
+
+    // 3. Update email
+    if err := e.users.UpdateEmail(ctx, userID, newEmail); err != nil {
+        return err
+    }
+
+    // 4. Audit log
+    e.auditLogger.Log(ctx, AuditEntry{
+        Timestamp: time.Now(),
+        UserID:    userID,
+        Action:    ActionEmailChange,
+        Status:    "SUCCESS",
+        Metadata: map[string]interface{}{
+            "new_email": newEmail,
+        },
+    })
+
+    return nil
+}
