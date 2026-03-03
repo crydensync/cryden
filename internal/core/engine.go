@@ -438,3 +438,24 @@ func (e *Engine) ChangeEmail(ctx context.Context, userID, newEmail string) error
 
     return nil
 }
+
+// DeleteAccount removes user and all sessions
+func (e *Engine) DeleteAccount(ctx context.Context, userID string) error {
+    // 1. Delete all sessions first
+    e.sessions.RevokeAllForUser(ctx, userID)
+
+    // 2. Delete user
+    if err := e.users.Delete(ctx, userID); err != nil {
+        return err
+    }
+
+    // 3. Audit log
+    e.auditLogger.Log(ctx, AuditEntry{
+        Timestamp: time.Now(),
+        UserID:    userID,
+        Action:    ActionAccountDelete,
+        Status:    "SUCCESS",
+    })
+
+    return nil
+}
