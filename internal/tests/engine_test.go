@@ -271,3 +271,54 @@ func TestLogoutAll(t *testing.T) {
         }
     })
 }
+
+func TestChangePassword(t *testing.T) {
+    userStore := memory.NewUserStore()
+    sessionStore := memory.NewSessionStore()
+    engine := core.New(userStore, sessionStore)
+    ctx := context.Background()
+
+    // Create user and login
+    engine.SignUp(ctx, "pass@example.com", "OldPass123")
+    user, _ := engine.users.GetByEmail(ctx, "pass@example.com")
+    tokens, _, _ := engine.Login(ctx, "pass@example.com", "OldPass123")
+
+    t.Run("successful password change", func(t *testing.T) {
+        err := engine.ChangePassword(ctx, user.ID, "OldPass123", "NewPass456")
+        if err != nil {
+            t.Errorf("ChangePassword failed: %v", err)
+        }
+
+        // Old password should not work
+        _, _, err = engine.Login(ctx, "pass@example.com", "OldPass123")
+        if err != core.ErrInvalidCredentials {
+            t.Error("Old password still works")
+        }
+
+        // New password should work
+        _, _, err = engine.Login(ctx, "pass@example.com", "NewPass456")
+        if err != nil {
+            t.Error("New password doesn't work")
+        }
+
+        // Old session should be revoked
+        _, err = engine.sessions.GetByRefreshToken(ctx, tokens.RefreshToken)
+        if err != core.ErrSessionNotFound {
+            t.Error("Old session still exists")
+        }
+    })
+
+    t.Run("wrong old password", func(t *testing.T) {
+        err := engine.ChangePassword(ctx, user.ID, "WrongPass", "NewPass456")
+        if err != core.ErrInvalidCredentials {
+            t.Errorf("Expected ErrInvalidCredentials, got %v", err)
+        }
+    })
+
+    t.Run("invalid new password", func(t *testing.T) {
+        err := engine.ChangePassword(ctx, user.ID, "NewPass456", "short")
+        if err == nil {
+            t.Error("Expected validation error, got nil")
+        }
+    })
+}
