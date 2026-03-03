@@ -353,3 +353,53 @@ func (e *Engine) LogoutAll(ctx context.Context, userID string) error {
 
     return nil
 }
+
+// ChangePassword updates user's password and logs out all devices
+func (e *Engine) ChangePassword(ctx context.Context, userID, oldPassword, newPassword string) error {
+    // 1. Get user
+    user, err := e.users.GetByID(ctx, userID)
+    if err != nil {
+        return err
+    }
+
+    // 2. Verify old password
+    if err := e.hasher.Compare(oldPassword, user.PasswordHash); err != nil {
+        e.auditLogger.Log(ctx, AuditEntry{
+            Timestamp: time.Now(),
+            UserID:    userID,
+            Action:    ActionPasswordChange,
+            Status:    "FAILED",
+            Error:     "wrong old password",
+        })
+        return ErrInvalidCredentials
+    }
+
+    // 3. Validate new password
+    if err := ValidatePassword(newPassword, e.config.PasswordPolicy); err != nil {
+        return err
+    }
+
+    // 4. Hash new password
+    newHash, err := e.hasher.Hash(newPassword)
+    if err != nil {
+        return err
+    }
+
+    // 5. Update in database
+    if err := e.users.UpdatePassword(ctx, userID, newHash); err != nil {
+        return err
+    }
+
+    // 6. Logout all devices (security best practice)
+    e.sessions.RevokeAllForUser(ctx, userID)
+
+    // 7. Audit success
+    e.auditLogger.Log(ctx, AuditEntry{
+        Timestamp: time.Now(),
+        UserID:    userID,
+        Action:    ActionPasswordChange,
+        Status:    "SUCCESS",
+    })
+
+    return nil
+}
