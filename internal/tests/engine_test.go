@@ -417,3 +417,64 @@ func TestDeleteAccount(t *testing.T) {
         }
     })
 }
+
+func TestRefreshToken(t *testing.T) {
+    userStore := memory.NewUserStore()
+    sessionStore := memory.NewSessionStore()
+    engine := core.New(userStore, sessionStore)
+    ctx := context.Background()
+
+    // Create user and login
+    engine.SignUp(ctx, "refresh@example.com", "Password123")
+    tokens, _, _ := engine.Login(ctx, "refresh@example.com", "Password123")
+
+    t.Run("successful refresh", func(t *testing.T) {
+        newTokens, err := engine.RefreshToken(ctx, tokens.RefreshToken)
+        if err != nil {
+            t.Errorf("Refresh failed: %v", err)
+        }
+
+        if newTokens.AccessToken == tokens.AccessToken {
+            t.Error("Access token should be new")
+        }
+        if newTokens.RefreshToken == tokens.RefreshToken {
+            t.Error("Refresh token should be new")
+        }
+
+        // Old refresh token should be revoked
+        _, err = engine.sessions.GetByRefreshToken(ctx, tokens.RefreshToken)
+        if err != core.ErrSessionNotFound {
+            t.Error("Old session still exists")
+        }
+
+        // New refresh token should work
+        _, err = engine.sessions.GetByRefreshToken(ctx, newTokens.RefreshToken)
+        if err != nil {
+            t.Error("New session not found")
+        }
+    })
+
+    t.Run("refresh with invalid token", func(t *testing.T) {
+        _, err := engine.RefreshToken(ctx, "invalid")
+        if err != core.ErrInvalidToken {
+            t.Errorf("Expected ErrInvalidToken, got %v", err)
+        }
+    })
+
+    t.Run("refresh with already used token", func(t *testing.T) {
+        // First refresh - works
+        newTokens, _ := engine.RefreshToken(ctx, tokens.RefreshToken)
+        
+        // Second refresh with same token - should fail (already revoked)
+        _, err := engine.RefreshToken(ctx, tokens.RefreshToken)
+        if err != core.ErrInvalidToken {
+            t.Errorf("Expected ErrInvalidToken for used token, got %v", err)
+        }
+
+        // New token should still work
+        _, err = engine.RefreshToken(ctx, newTokens.RefreshToken)
+        if err != nil {
+            t.Error("New token should work")
+        }
+    })
+}
