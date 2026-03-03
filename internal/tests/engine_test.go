@@ -372,3 +372,48 @@ func TestChangeEmail(t *testing.T) {
         }
     })
 }
+
+func TestDeleteAccount(t *testing.T) {
+    userStore := memory.NewUserStore()
+    sessionStore := memory.NewSessionStore()
+    engine := core.New(userStore, sessionStore)
+    ctx := context.Background()
+
+    // Create user and sessions
+    engine.SignUp(ctx, "delete@example.com", "Password123")
+    user, _ := engine.users.GetByEmail(ctx, "delete@example.com")
+    
+    // Create multiple sessions
+    tokens1, _, _ := engine.Login(ctx, "delete@example.com", "Password123")
+    tokens2, _, _ := engine.Login(ctx, "delete@example.com", "Password123")
+
+    t.Run("delete account", func(t *testing.T) {
+        err := engine.DeleteAccount(ctx, user.ID)
+        if err != nil {
+            t.Errorf("DeleteAccount failed: %v", err)
+        }
+
+        // User should be gone
+        _, err = engine.users.GetByEmail(ctx, "delete@example.com")
+        if err != core.ErrUserNotFound {
+            t.Error("User still exists")
+        }
+
+        // Sessions should be gone
+        _, err = engine.sessions.GetByRefreshToken(ctx, tokens1.RefreshToken)
+        if err != core.ErrSessionNotFound {
+            t.Error("First session still exists")
+        }
+        _, err = engine.sessions.GetByRefreshToken(ctx, tokens2.RefreshToken)
+        if err != core.ErrSessionNotFound {
+            t.Error("Second session still exists")
+        }
+    })
+
+    t.Run("delete nonexistent user", func(t *testing.T) {
+        err := engine.DeleteAccount(ctx, "nonexistent")
+        if err != core.ErrUserNotFound {
+            t.Errorf("Expected ErrUserNotFound, got %v", err)
+        }
+    })
+}
