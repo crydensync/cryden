@@ -322,3 +322,53 @@ func TestChangePassword(t *testing.T) {
         }
     })
 }
+
+func TestChangeEmail(t *testing.T) {
+    userStore := memory.NewUserStore()
+    sessionStore := memory.NewSessionStore()
+    engine := core.New(userStore, sessionStore)
+    ctx := context.Background()
+
+    // Create user
+    engine.SignUp(ctx, "old@example.com", "Password123")
+    user, _ := engine.users.GetByEmail(ctx, "old@example.com")
+
+    t.Run("successful email change", func(t *testing.T) {
+        err := engine.ChangeEmail(ctx, user.ID, "new@example.com")
+        if err != nil {
+            t.Errorf("ChangeEmail failed: %v", err)
+        }
+
+        // Old email should not work
+        _, err = engine.users.GetByEmail(ctx, "old@example.com")
+        if err != core.ErrUserNotFound {
+            t.Error("Old email still exists")
+        }
+
+        // New email should work
+        found, err := engine.users.GetByEmail(ctx, "new@example.com")
+        if err != nil {
+            t.Error("New email not found")
+        }
+        if found.ID != user.ID {
+            t.Error("Wrong user returned")
+        }
+    })
+
+    t.Run("duplicate email", func(t *testing.T) {
+        engine.SignUp(ctx, "duplicate@example.com", "Password123")
+        duplicate, _ := engine.users.GetByEmail(ctx, "duplicate@example.com")
+        
+        err := engine.ChangeEmail(ctx, duplicate.ID, "new@example.com")
+        if err != core.ErrUserExists {
+            t.Errorf("Expected ErrUserExists, got %v", err)
+        }
+    })
+
+    t.Run("invalid email", func(t *testing.T) {
+        err := engine.ChangeEmail(ctx, user.ID, "notanemail")
+        if err == nil {
+            t.Error("Expected validation error, got nil")
+        }
+    })
+}
