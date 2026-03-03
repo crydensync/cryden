@@ -356,13 +356,13 @@ func (e *Engine) LogoutAll(ctx context.Context, userID string) error {
 
 // ChangePassword updates user's password and logs out all devices
 func (e *Engine) ChangePassword(ctx context.Context, userID, oldPassword, newPassword string) error {
-    // 1. Get user
+    // Get user
     user, err := e.users.GetByID(ctx, userID)
     if err != nil {
         return err
     }
 
-    // 2. Verify old password
+    // Verify old password
     if err := e.hasher.Compare(oldPassword, user.PasswordHash); err != nil {
         e.auditLogger.Log(ctx, AuditEntry{
             Timestamp: time.Now(),
@@ -374,26 +374,25 @@ func (e *Engine) ChangePassword(ctx context.Context, userID, oldPassword, newPas
         return ErrInvalidCredentials
     }
 
-    // 3. Validate new password
+    // Validate new password
     if err := ValidatePassword(newPassword, e.config.PasswordPolicy); err != nil {
         return err
     }
 
-    // 4. Hash new password
+    // Hash new password
     newHash, err := e.hasher.Hash(newPassword)
     if err != nil {
         return err
     }
 
-    // 5. Update in database
+    // Update in database
     if err := e.users.UpdatePassword(ctx, userID, newHash); err != nil {
         return err
     }
 
-    // 6. Logout all devices (security best practice)
+    // Logout all devices (security best practice)
     e.sessions.RevokeAllForUser(ctx, userID)
 
-    // 7. Audit success
     e.auditLogger.Log(ctx, AuditEntry{
         Timestamp: time.Now(),
         UserID:    userID,
@@ -406,12 +405,12 @@ func (e *Engine) ChangePassword(ctx context.Context, userID, oldPassword, newPas
 
 // ChangeEmail updates user's email
 func (e *Engine) ChangeEmail(ctx context.Context, userID, newEmail string) error {
-    // 1. Validate email
+    // Validate email
     if err := ValidateEmail(newEmail); err != nil {
         return err
     }
 
-    // 2. Check if email already exists
+    // Check if email already exists
     existing, err := e.users.GetByEmail(ctx, newEmail)
     if err != nil && err != ErrUserNotFound {
         return err
@@ -420,12 +419,11 @@ func (e *Engine) ChangeEmail(ctx context.Context, userID, newEmail string) error
         return ErrUserExists
     }
 
-    // 3. Update email
+    // Update email
     if err := e.users.UpdateEmail(ctx, userID, newEmail); err != nil {
         return err
     }
 
-    // 4. Audit log
     e.auditLogger.Log(ctx, AuditEntry{
         Timestamp: time.Now(),
         UserID:    userID,
@@ -441,15 +439,14 @@ func (e *Engine) ChangeEmail(ctx context.Context, userID, newEmail string) error
 
 // DeleteAccount removes user and all sessions
 func (e *Engine) DeleteAccount(ctx context.Context, userID string) error {
-    // 1. Delete all sessions first
+    // Delete all sessions first
     e.sessions.RevokeAllForUser(ctx, userID)
 
-    // 2. Delete user
+    // Delete user
     if err := e.users.Delete(ctx, userID); err != nil {
         return err
     }
 
-    // 3. Audit log
     e.auditLogger.Log(ctx, AuditEntry{
         Timestamp: time.Now(),
         UserID:    userID,
