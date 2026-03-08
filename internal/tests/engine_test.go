@@ -208,273 +208,273 @@ func TestLoginRateLimiting(t *testing.T) {
 }
 
 func TestLogout(t *testing.T) {
-    userStore := memory.NewUserStore()
-    sessionStore := memory.NewSessionStore()
-    engine := core.New(userStore, sessionStore)
-    ctx := context.Background()
+	userStore := memory.NewUserStore()
+	sessionStore := memory.NewSessionStore()
+	engine := core.New(userStore, sessionStore)
+	ctx := context.Background()
 
-    engine.SignUp(ctx, "logout@example.com", "Password123")
-    tokens, _, _ := engine.Login(ctx, "logout@example.com", "Password123")
+	engine.SignUp(ctx, "logout@example.com", "Password123")
+	tokens, _, _ := engine.Login(ctx, "logout@example.com", "Password123")
 
-    t.Run("valid logout", func(t *testing.T) {
-        err := engine.Logout(ctx, tokens.RefreshToken)
-        if err != nil {
-            t.Errorf("Logout failed: %v", err)
-        }
+	t.Run("valid logout", func(t *testing.T) {
+		err := engine.Logout(ctx, tokens.RefreshToken)
+		if err != nil {
+			t.Errorf("Logout failed: %v", err)
+		}
 
-        _, err = engine.GetSessionStore().GetByRefreshToken(ctx, tokens.RefreshToken)
-        if err != core.ErrSessionNotFound {
-            t.Errorf("Expected session not found, got %v", err)
-        }
-    })
+		_, err = engine.GetSessionStore().GetByRefreshToken(ctx, tokens.RefreshToken)
+		if err != core.ErrSessionNotFound {
+			t.Errorf("Expected session not found, got %v", err)
+		}
+	})
 
-    t.Run("invalid token", func(t *testing.T) {
-        err := engine.Logout(ctx, "invalid")
-        if err != core.ErrInvalidToken {
-            t.Errorf("Expected ErrInvalidToken, got %v", err)
-        }
-    })
+	t.Run("invalid token", func(t *testing.T) {
+		err := engine.Logout(ctx, "invalid")
+		if err != core.ErrInvalidToken {
+			t.Errorf("Expected ErrInvalidToken, got %v", err)
+		}
+	})
 }
 
 func TestLogoutAll(t *testing.T) {
-    userStore := memory.NewUserStore()
-    sessionStore := memory.NewSessionStore()
-    engine := core.New(userStore, sessionStore)
-    ctx := context.Background()
+	userStore := memory.NewUserStore()
+	sessionStore := memory.NewSessionStore()
+	engine := core.New(userStore, sessionStore)
+	ctx := context.Background()
 
-    engine.SignUp(ctx, "logoutall@example.com", "Password123")
-    
-    // Create multiple sessions
-    tokens1, _, _ := engine.Login(ctx, "logoutall@example.com", "Password123")
-    tokens2, _, _ := engine.Login(ctx, "logoutall@example.com", "Password123")
-    tokens3, _, _ := engine.Login(ctx, "logoutall@example.com", "Password123")
+	engine.SignUp(ctx, "logoutall@example.com", "Password123")
 
-    t.Run("logout all devices", func(t *testing.T) {
-        user, _ := engine.GetUserStore().GetByEmail(ctx, "logoutall@example.com")
-        err := engine.LogoutAll(ctx, user.ID)
-        if err != nil {
-            t.Errorf("LogoutAll failed: %v", err)
-        }
+	// Create multiple sessions
+	tokens1, _, _ := engine.Login(ctx, "logoutall@example.com", "Password123")
+	tokens2, _, _ := engine.Login(ctx, "logoutall@example.com", "Password123")
+	tokens3, _, _ := engine.Login(ctx, "logoutall@example.com", "Password123")
 
-        // All sessions should be gone
-        _, err = engine.GetSessionStore().GetByRefreshToken(ctx, tokens1.RefreshToken)
-        if err != core.ErrSessionNotFound {
-            t.Error("First session still exists")
-        }
-        _, err = engine.GetSessionStore().GetByRefreshToken(ctx, tokens2.RefreshToken)
-        if err != core.ErrSessionNotFound {
-            t.Error("Second session still exists")
-        }
-        _, err = engine.GetSessionStore().GetByRefreshToken(ctx, tokens3.RefreshToken)
-        if err != core.ErrSessionNotFound {
-            t.Error("Third session still exists")
-        }
-    })
+	t.Run("logout all devices", func(t *testing.T) {
+		user, _ := engine.GetUserStore().GetByEmail(ctx, "logoutall@example.com")
+		err := engine.LogoutAll(ctx, user.ID)
+		if err != nil {
+			t.Errorf("LogoutAll failed: %v", err)
+		}
+
+		// All sessions should be gone
+		_, err = engine.GetSessionStore().GetByRefreshToken(ctx, tokens1.RefreshToken)
+		if err != core.ErrSessionNotFound {
+			t.Error("First session still exists")
+		}
+		_, err = engine.GetSessionStore().GetByRefreshToken(ctx, tokens2.RefreshToken)
+		if err != core.ErrSessionNotFound {
+			t.Error("Second session still exists")
+		}
+		_, err = engine.GetSessionStore().GetByRefreshToken(ctx, tokens3.RefreshToken)
+		if err != core.ErrSessionNotFound {
+			t.Error("Third session still exists")
+		}
+	})
 }
 
 func TestChangePassword(t *testing.T) {
-    userStore := memory.NewUserStore()
-    sessionStore := memory.NewSessionStore()
-    engine := core.New(userStore, sessionStore)
-    ctx := context.Background()
+	userStore := memory.NewUserStore()
+	sessionStore := memory.NewSessionStore()
+	engine := core.New(userStore, sessionStore)
+	ctx := context.Background()
 
-    // Create user and login
-    engine.SignUp(ctx, "pass@example.com", "OldPass123")
-    user, _ := engine.GetUserStore().GetByEmail(ctx, "pass@example.com")
-    tokens, _, _ := engine.Login(ctx, "pass@example.com", "OldPass123")
+	// Create user and login
+	engine.SignUp(ctx, "pass@example.com", "OldPass123")
+	user, _ := engine.GetUserStore().GetByEmail(ctx, "pass@example.com")
+	tokens, _, _ := engine.Login(ctx, "pass@example.com", "OldPass123")
 
-    t.Run("successful password change", func(t *testing.T) {
-        err := engine.ChangePassword(ctx, user.ID, "OldPass123", "NewPass456")
-        if err != nil {
-            t.Errorf("ChangePassword failed: %v", err)
-        }
+	t.Run("successful password change", func(t *testing.T) {
+		err := engine.ChangePassword(ctx, user.ID, "OldPass123", "NewPass456")
+		if err != nil {
+			t.Errorf("ChangePassword failed: %v", err)
+		}
 
-        // Old password should not work
-        _, _, err = engine.Login(ctx, "pass@example.com", "OldPass123")
-        if err != core.ErrInvalidCredentials {
-            t.Error("Old password still works")
-        }
+		// Old password should not work
+		_, _, err = engine.Login(ctx, "pass@example.com", "OldPass123")
+		if err != core.ErrInvalidCredentials {
+			t.Error("Old password still works")
+		}
 
-        // New password should work
-        _, _, err = engine.Login(ctx, "pass@example.com", "NewPass456")
-        if err != nil {
-            t.Error("New password doesn't work")
-        }
+		// New password should work
+		_, _, err = engine.Login(ctx, "pass@example.com", "NewPass456")
+		if err != nil {
+			t.Error("New password doesn't work")
+		}
 
-        // Old session should be revoked
-        _, err = engine.GetSessionStore().GetByRefreshToken(ctx, tokens.RefreshToken)
-        if err != core.ErrSessionNotFound {
-            t.Error("Old session still exists")
-        }
-    })
+		// Old session should be revoked
+		_, err = engine.GetSessionStore().GetByRefreshToken(ctx, tokens.RefreshToken)
+		if err != core.ErrSessionNotFound {
+			t.Error("Old session still exists")
+		}
+	})
 
-    t.Run("wrong old password", func(t *testing.T) {
-        err := engine.ChangePassword(ctx, user.ID, "WrongPass", "NewPass456")
-        if err != core.ErrInvalidCredentials {
-            t.Errorf("Expected ErrInvalidCredentials, got %v", err)
-        }
-    })
+	t.Run("wrong old password", func(t *testing.T) {
+		err := engine.ChangePassword(ctx, user.ID, "WrongPass", "NewPass456")
+		if err != core.ErrInvalidCredentials {
+			t.Errorf("Expected ErrInvalidCredentials, got %v", err)
+		}
+	})
 
-    t.Run("invalid new password", func(t *testing.T) {
-        err := engine.ChangePassword(ctx, user.ID, "NewPass456", "short")
-        if err == nil {
-            t.Error("Expected validation error, got nil")
-        }
-    })
+	t.Run("invalid new password", func(t *testing.T) {
+		err := engine.ChangePassword(ctx, user.ID, "NewPass456", "short")
+		if err == nil {
+			t.Error("Expected validation error, got nil")
+		}
+	})
 }
 
 func TestChangeEmail(t *testing.T) {
-    userStore := memory.NewUserStore()
-    sessionStore := memory.NewSessionStore()
-    engine := core.New(userStore, sessionStore)
-    ctx := context.Background()
+	userStore := memory.NewUserStore()
+	sessionStore := memory.NewSessionStore()
+	engine := core.New(userStore, sessionStore)
+	ctx := context.Background()
 
-    // Create user
-    engine.SignUp(ctx, "old@example.com", "Password123")
-    user, _ := engine.GetUserStore().GetByEmail(ctx, "old@example.com")
+	// Create user
+	engine.SignUp(ctx, "old@example.com", "Password123")
+	user, _ := engine.GetUserStore().GetByEmail(ctx, "old@example.com")
 
-    t.Run("successful email change", func(t *testing.T) {
-        err := engine.ChangeEmail(ctx, user.ID, "new@example.com")
-        if err != nil {
-            t.Errorf("ChangeEmail failed: %v", err)
-        }
+	t.Run("successful email change", func(t *testing.T) {
+		err := engine.ChangeEmail(ctx, user.ID, "new@example.com")
+		if err != nil {
+			t.Errorf("ChangeEmail failed: %v", err)
+		}
 
-        // Old email should not work
-        _, err = engine.GetUserStore().GetByEmail(ctx, "old@example.com")
-        if err != core.ErrUserNotFound {
-            t.Error("Old email still exists")
-        }
+		// Old email should not work
+		_, err = engine.GetUserStore().GetByEmail(ctx, "old@example.com")
+		if err != core.ErrUserNotFound {
+			t.Error("Old email still exists")
+		}
 
-        // New email should work
-        found, err := engine.GetUserStore().GetByEmail(ctx, "new@example.com")
-        if err != nil {
-            t.Error("New email not found")
-        }
-        if found.ID != user.ID {
-            t.Error("Wrong user returned")
-        }
-    })
+		// New email should work
+		found, err := engine.GetUserStore().GetByEmail(ctx, "new@example.com")
+		if err != nil {
+			t.Error("New email not found")
+		}
+		if found.ID != user.ID {
+			t.Error("Wrong user returned")
+		}
+	})
 
-    t.Run("duplicate email", func(t *testing.T) {
-        engine.SignUp(ctx, "duplicate@example.com", "Password123")
-        duplicate, _ := engine.GetUserStore().GetByEmail(ctx, "duplicate@example.com")
-        
-        err := engine.ChangeEmail(ctx, duplicate.ID, "new@example.com")
-        if err != core.ErrUserExists {
-            t.Errorf("Expected ErrUserExists, got %v", err)
-        }
-    })
+	t.Run("duplicate email", func(t *testing.T) {
+		engine.SignUp(ctx, "duplicate@example.com", "Password123")
+		duplicate, _ := engine.GetUserStore().GetByEmail(ctx, "duplicate@example.com")
 
-    t.Run("invalid email", func(t *testing.T) {
-        err := engine.ChangeEmail(ctx, user.ID, "notanemail")
-        if err == nil {
-            t.Error("Expected validation error, got nil")
-        }
-    })
+		err := engine.ChangeEmail(ctx, duplicate.ID, "new@example.com")
+		if err != core.ErrUserExists {
+			t.Errorf("Expected ErrUserExists, got %v", err)
+		}
+	})
+
+	t.Run("invalid email", func(t *testing.T) {
+		err := engine.ChangeEmail(ctx, user.ID, "notanemail")
+		if err == nil {
+			t.Error("Expected validation error, got nil")
+		}
+	})
 }
 
 func TestDeleteAccount(t *testing.T) {
-    userStore := memory.NewUserStore()
-    sessionStore := memory.NewSessionStore()
-    engine := core.New(userStore, sessionStore)
-    ctx := context.Background()
+	userStore := memory.NewUserStore()
+	sessionStore := memory.NewSessionStore()
+	engine := core.New(userStore, sessionStore)
+	ctx := context.Background()
 
-    // Create user and sessions
-    engine.SignUp(ctx, "delete@example.com", "Password123")
-    user, _ := engine.GetUserStore().GetByEmail(ctx, "delete@example.com")
-    
-    // Create multiple sessions
-    tokens1, _, _ := engine.Login(ctx, "delete@example.com", "Password123")
-    tokens2, _, _ := engine.Login(ctx, "delete@example.com", "Password123")
+	// Create user and sessions
+	engine.SignUp(ctx, "delete@example.com", "Password123")
+	user, _ := engine.GetUserStore().GetByEmail(ctx, "delete@example.com")
 
-    t.Run("delete account", func(t *testing.T) {
-        err := engine.DeleteAccount(ctx, user.ID)
-        if err != nil {
-            t.Errorf("DeleteAccount failed: %v", err)
-        }
+	// Create multiple sessions
+	tokens1, _, _ := engine.Login(ctx, "delete@example.com", "Password123")
+	tokens2, _, _ := engine.Login(ctx, "delete@example.com", "Password123")
 
-        // User should be gone
-        _, err = engine.GetUserStore().GetByEmail(ctx, "delete@example.com")
-        if err != core.ErrUserNotFound {
-            t.Error("User still exists")
-        }
+	t.Run("delete account", func(t *testing.T) {
+		err := engine.DeleteAccount(ctx, user.ID)
+		if err != nil {
+			t.Errorf("DeleteAccount failed: %v", err)
+		}
 
-        // Sessions should be gone
-        _, err = engine.GetSessionStore().GetByRefreshToken(ctx, tokens1.RefreshToken)
-        if err != core.ErrSessionNotFound {
-            t.Error("First session still exists")
-        }
-        _, err = engine.GetSessionStore().GetByRefreshToken(ctx, tokens2.RefreshToken)
-        if err != core.ErrSessionNotFound {
-            t.Error("Second session still exists")
-        }
-    })
+		// User should be gone
+		_, err = engine.GetUserStore().GetByEmail(ctx, "delete@example.com")
+		if err != core.ErrUserNotFound {
+			t.Error("User still exists")
+		}
 
-    t.Run("delete nonexistent user", func(t *testing.T) {
-        err := engine.DeleteAccount(ctx, "nonexistent")
-        if err != core.ErrUserNotFound {
-            t.Errorf("Expected ErrUserNotFound, got %v", err)
-        }
-    })
+		// Sessions should be gone
+		_, err = engine.GetSessionStore().GetByRefreshToken(ctx, tokens1.RefreshToken)
+		if err != core.ErrSessionNotFound {
+			t.Error("First session still exists")
+		}
+		_, err = engine.GetSessionStore().GetByRefreshToken(ctx, tokens2.RefreshToken)
+		if err != core.ErrSessionNotFound {
+			t.Error("Second session still exists")
+		}
+	})
+
+	t.Run("delete nonexistent user", func(t *testing.T) {
+		err := engine.DeleteAccount(ctx, "nonexistent")
+		if err != core.ErrUserNotFound {
+			t.Errorf("Expected ErrUserNotFound, got %v", err)
+		}
+	})
 }
 
 func TestRefreshToken(t *testing.T) {
-    userStore := memory.NewUserStore()
-    sessionStore := memory.NewSessionStore()
-    engine := core.New(userStore, sessionStore)
-    ctx := context.Background()
+	userStore := memory.NewUserStore()
+	sessionStore := memory.NewSessionStore()
+	engine := core.New(userStore, sessionStore)
+	ctx := context.Background()
 
-    // Create user and login
-    engine.SignUp(ctx, "refresh@example.com", "Password123")
-    tokens, _, _ := engine.Login(ctx, "refresh@example.com", "Password123")
+	// Create user and login
+	engine.SignUp(ctx, "refresh@example.com", "Password123")
+	tokens, _, _ := engine.Login(ctx, "refresh@example.com", "Password123")
 
-    t.Run("successful refresh", func(t *testing.T) {
-        newTokens, err := engine.RefreshToken(ctx, tokens.RefreshToken)
-        if err != nil {
-            t.Errorf("Refresh failed: %v", err)
-        }
+	t.Run("successful refresh", func(t *testing.T) {
+		newTokens, err := engine.RefreshToken(ctx, tokens.RefreshToken)
+		if err != nil {
+			t.Errorf("Refresh failed: %v", err)
+		}
 
-        if newTokens.AccessToken == tokens.AccessToken {
-            t.Error("Access token should be new")
-        }
-        if newTokens.RefreshToken == tokens.RefreshToken {
-            t.Error("Refresh token should be new")
-        }
+		if newTokens.AccessToken == tokens.AccessToken {
+			t.Error("Access token should be new")
+		}
+		if newTokens.RefreshToken == tokens.RefreshToken {
+			t.Error("Refresh token should be new")
+		}
 
-        // Old refresh token should be revoked
-        _, err = engine.GetSessionStore().GetByRefreshToken(ctx, tokens.RefreshToken)
-        if err != core.ErrSessionNotFound {
-            t.Error("Old session still exists")
-        }
+		// Old refresh token should be revoked
+		_, err = engine.GetSessionStore().GetByRefreshToken(ctx, tokens.RefreshToken)
+		if err != core.ErrSessionNotFound {
+			t.Error("Old session still exists")
+		}
 
-        // New refresh token should work
-        _, err = engine.GetSessionStore().GetByRefreshToken(ctx, newTokens.RefreshToken)
-        if err != nil {
-            t.Error("New session not found")
-        }
-    })
+		// New refresh token should work
+		_, err = engine.GetSessionStore().GetByRefreshToken(ctx, newTokens.RefreshToken)
+		if err != nil {
+			t.Error("New session not found")
+		}
+	})
 
-    t.Run("refresh with invalid token", func(t *testing.T) {
-        _, err := engine.RefreshToken(ctx, "invalid")
-        if err != core.ErrInvalidToken {
-            t.Errorf("Expected ErrInvalidToken, got %v", err)
-        }
-    })
+	t.Run("refresh with invalid token", func(t *testing.T) {
+		_, err := engine.RefreshToken(ctx, "invalid")
+		if err != core.ErrInvalidToken {
+			t.Errorf("Expected ErrInvalidToken, got %v", err)
+		}
+	})
 
-    t.Run("refresh with already used token", func(t *testing.T) {
-        // First refresh - works
-        newTokens, _ := engine.RefreshToken(ctx, tokens.RefreshToken)
-        
-        // Second refresh with same token - should fail (already revoked)
-        _, err := engine.RefreshToken(ctx, tokens.RefreshToken)
-        if err != core.ErrInvalidToken {
-            t.Errorf("Expected ErrInvalidToken for used token, got %v", err)
-        }
+	t.Run("refresh with already used token", func(t *testing.T) {
+		// First refresh - works
+		newTokens, _ := engine.RefreshToken(ctx, tokens.RefreshToken)
 
-        // New token should still work
-        _, err = engine.RefreshToken(ctx, newTokens.RefreshToken)
-        if err != nil {
-            t.Error("New token should work")
-        }
-    })
+		// Second refresh with same token - should fail (already revoked)
+		_, err := engine.RefreshToken(ctx, tokens.RefreshToken)
+		if err != core.ErrInvalidToken {
+			t.Errorf("Expected ErrInvalidToken for used token, got %v", err)
+		}
+
+		// New token should still work
+		_, err = engine.RefreshToken(ctx, newTokens.RefreshToken)
+		if err != nil {
+			t.Error("New token should work")
+		}
+	})
 }

@@ -317,172 +317,172 @@ func (e *Engine) Authenticate(tokenString string) (string, error) {
 
 // GetUser retrieves a user by ID
 func (e *Engine) GetUser(ctx context.Context, userID string) (*User, error) {
-    return e.users.GetByID(ctx, userID)
+	return e.users.GetByID(ctx, userID)
 }
 
 // GetUserByEmail retrieves a user by email
 func (e *Engine) GetUserByEmail(ctx context.Context, email string) (*User, error) {
-    return e.users.GetByEmail(ctx, email)
+	return e.users.GetByEmail(ctx, email)
 }
 
 // ListSessions returns all active sessions for a user
 func (e *Engine) ListSessions(ctx context.Context, userID string) ([]Session, error) {
-    return e.sessions.ListForUser(ctx, userID)
+	return e.sessions.ListForUser(ctx, userID)
 }
 
 // RevokeSession manually revokes a specific session
 func (e *Engine) RevokeSession(ctx context.Context, sessionID string) error {
-    return e.sessions.Revoke(ctx, sessionID)
+	return e.sessions.Revoke(ctx, sessionID)
 }
 
 // GetUserStore returns the user store (for testing)
 func (e *Engine) GetUserStore() UserStore {
-    return e.users
+	return e.users
 }
 
 // GetSessionStore returns the session store (for testing)
 func (e *Engine) GetSessionStore() SessionStore {
-    return e.sessions
+	return e.sessions
 }
 
 // Logout revokes the current session
 func (e *Engine) Logout(ctx context.Context, refreshToken string) error {
-    session, err := e.sessions.GetByRefreshToken(ctx, refreshToken)
-    if err != nil {
-        return ErrInvalidToken
-    }
+	session, err := e.sessions.GetByRefreshToken(ctx, refreshToken)
+	if err != nil {
+		return ErrInvalidToken
+	}
 
-    if err := e.sessions.Revoke(ctx, session.ID); err != nil {
-        return err
-    }
+	if err := e.sessions.Revoke(ctx, session.ID); err != nil {
+		return err
+	}
 
-    e.auditLogger.Log(ctx, AuditEntry{
-        Timestamp: time.Now(),
-        UserID:    session.UserID,
-        Action:    ActionSignOut,
-        Status:    "SUCCESS",
-        IPAddress: getClientIP(ctx),
-    })
+	e.auditLogger.Log(ctx, AuditEntry{
+		Timestamp: time.Now(),
+		UserID:    session.UserID,
+		Action:    ActionSignOut,
+		Status:    "SUCCESS",
+		IPAddress: getClientIP(ctx),
+	})
 
-    return nil
+	return nil
 }
 
 // LogoutAll revokes ALL sessions for a user
 func (e *Engine) LogoutAll(ctx context.Context, userID string) error {
-    if err := e.sessions.RevokeAllForUser(ctx, userID); err != nil {
-        return err
-    }
+	if err := e.sessions.RevokeAllForUser(ctx, userID); err != nil {
+		return err
+	}
 
-    e.auditLogger.Log(ctx, AuditEntry{
-        Timestamp: time.Now(),
-        UserID:    userID,
-        Action:    ActionSignOutAll,
-        Status:    "SUCCESS",
-        IPAddress: getClientIP(ctx),
-    })
+	e.auditLogger.Log(ctx, AuditEntry{
+		Timestamp: time.Now(),
+		UserID:    userID,
+		Action:    ActionSignOutAll,
+		Status:    "SUCCESS",
+		IPAddress: getClientIP(ctx),
+	})
 
-    return nil
+	return nil
 }
 
 // ChangePassword updates user's password and logs out all devices
 func (e *Engine) ChangePassword(ctx context.Context, userID, oldPassword, newPassword string) error {
-    // Get user
-    user, err := e.users.GetByID(ctx, userID)
-    if err != nil {
-        return err
-    }
+	// Get user
+	user, err := e.users.GetByID(ctx, userID)
+	if err != nil {
+		return err
+	}
 
-    // Verify old password
-    if err := e.hasher.Compare(oldPassword, user.PasswordHash); err != nil {
-        e.auditLogger.Log(ctx, AuditEntry{
-            Timestamp: time.Now(),
-            UserID:    userID,
-            Action:    ActionPasswordChange,
-            Status:    "FAILED",
-            Error:     "wrong old password",
-        })
-        return ErrInvalidCredentials
-    }
+	// Verify old password
+	if err := e.hasher.Compare(oldPassword, user.PasswordHash); err != nil {
+		e.auditLogger.Log(ctx, AuditEntry{
+			Timestamp: time.Now(),
+			UserID:    userID,
+			Action:    ActionPasswordChange,
+			Status:    "FAILED",
+			Error:     "wrong old password",
+		})
+		return ErrInvalidCredentials
+	}
 
-    // Validate new password
-    if err := ValidatePassword(newPassword, e.config.PasswordPolicy); err != nil {
-        return err
-    }
+	// Validate new password
+	if err := ValidatePassword(newPassword, e.config.PasswordPolicy); err != nil {
+		return err
+	}
 
-    // Hash new password
-    newHash, err := e.hasher.Hash(newPassword)
-    if err != nil {
-        return err
-    }
+	// Hash new password
+	newHash, err := e.hasher.Hash(newPassword)
+	if err != nil {
+		return err
+	}
 
-    // Update in database
-    if err := e.users.UpdatePassword(ctx, userID, newHash); err != nil {
-        return err
-    }
+	// Update in database
+	if err := e.users.UpdatePassword(ctx, userID, newHash); err != nil {
+		return err
+	}
 
-    // Logout all devices (security best practice)
-    e.sessions.RevokeAllForUser(ctx, userID)
+	// Logout all devices (security best practice)
+	e.sessions.RevokeAllForUser(ctx, userID)
 
-    e.auditLogger.Log(ctx, AuditEntry{
-        Timestamp: time.Now(),
-        UserID:    userID,
-        Action:    ActionPasswordChange,
-        Status:    "SUCCESS",
-    })
+	e.auditLogger.Log(ctx, AuditEntry{
+		Timestamp: time.Now(),
+		UserID:    userID,
+		Action:    ActionPasswordChange,
+		Status:    "SUCCESS",
+	})
 
-    return nil
+	return nil
 }
 
 // ChangeEmail updates user's email
 func (e *Engine) ChangeEmail(ctx context.Context, userID, newEmail string) error {
-    // Validate email
-    if err := ValidateEmail(newEmail); err != nil {
-        return err
-    }
+	// Validate email
+	if err := ValidateEmail(newEmail); err != nil {
+		return err
+	}
 
-    // Check if email already exists
-    existing, err := e.users.GetByEmail(ctx, newEmail)
-    if err != nil && err != ErrUserNotFound {
-        return err
-    }
-    if existing != nil {
-        return ErrUserExists
-    }
+	// Check if email already exists
+	existing, err := e.users.GetByEmail(ctx, newEmail)
+	if err != nil && err != ErrUserNotFound {
+		return err
+	}
+	if existing != nil {
+		return ErrUserExists
+	}
 
-    // Update email
-    if err := e.users.UpdateEmail(ctx, userID, newEmail); err != nil {
-        return err
-    }
+	// Update email
+	if err := e.users.UpdateEmail(ctx, userID, newEmail); err != nil {
+		return err
+	}
 
-    e.auditLogger.Log(ctx, AuditEntry{
-        Timestamp: time.Now(),
-        UserID:    userID,
-        Action:    ActionEmailChange,
-        Status:    "SUCCESS",
-        Metadata: map[string]interface{}{
-            "new_email": newEmail,
-        },
-    })
+	e.auditLogger.Log(ctx, AuditEntry{
+		Timestamp: time.Now(),
+		UserID:    userID,
+		Action:    ActionEmailChange,
+		Status:    "SUCCESS",
+		Metadata: map[string]interface{}{
+			"new_email": newEmail,
+		},
+	})
 
-    return nil
+	return nil
 }
 
 // DeleteAccount removes user and all sessions
 func (e *Engine) DeleteAccount(ctx context.Context, userID string) error {
-    // Delete all sessions first
-    e.sessions.RevokeAllForUser(ctx, userID)
+	// Delete all sessions first
+	e.sessions.RevokeAllForUser(ctx, userID)
 
-    // Delete user
-    if err := e.users.Delete(ctx, userID); err != nil {
-        return err
-    }
+	// Delete user
+	if err := e.users.Delete(ctx, userID); err != nil {
+		return err
+	}
 
-    e.auditLogger.Log(ctx, AuditEntry{
-        Timestamp: time.Now(),
-        UserID:    userID,
-        Action:    ActionAccountDelete,
-        Status:    "SUCCESS",
-    })
+	e.auditLogger.Log(ctx, AuditEntry{
+		Timestamp: time.Now(),
+		UserID:    userID,
+		Action:    ActionAccountDelete,
+		Status:    "SUCCESS",
+	})
 
-    return nil
+	return nil
 }

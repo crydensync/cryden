@@ -1,11 +1,10 @@
 package tests
 
 import (
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/crydensync/cryden/internal/core"
+	"github.com/golang-jwt/jwt/v5"
 	"testing"
 	"time"
-
 )
 
 func TestJWTTokens(t *testing.T) {
