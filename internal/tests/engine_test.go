@@ -470,11 +470,13 @@ func TestRefreshToken(t *testing.T) {
 		if err != core.ErrInvalidToken {
 			t.Errorf("Expected ErrInvalidToken for used token, got %v", err)
 		}
-
+    
+		if newTokens != nil {
 		// New token should still work
 		_, err = engine.RefreshToken(ctx, newTokens.RefreshToken)
 		if err != nil {
 			t.Error("New token should work")
 		}
+	}
 	})
 }
