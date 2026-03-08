@@ -315,6 +315,36 @@ func (e *Engine) Authenticate(tokenString string) (string, error) {
 	return claims.UserID, nil
 }
 
+// GetUser retrieves a user by ID
+func (e *Engine) GetUser(ctx context.Context, userID string) (*User, error) {
+    return e.users.GetByID(ctx, userID)
+}
+
+// GetUserByEmail retrieves a user by email
+func (e *Engine) GetUserByEmail(ctx context.Context, email string) (*User, error) {
+    return e.users.GetByEmail(ctx, email)
+}
+
+// ListSessions returns all active sessions for a user
+func (e *Engine) ListSessions(ctx context.Context, userID string) ([]Session, error) {
+    return e.sessions.ListForUser(ctx, userID)
+}
+
+// RevokeSession manually revokes a specific session
+func (e *Engine) RevokeSession(ctx context.Context, sessionID string) error {
+    return e.sessions.Revoke(ctx, sessionID)
+}
+
+// GetUserStore returns the user store (for testing)
+func (e *Engine) GetUserStore() UserStore {
+    return e.users
+}
+
+// GetSessionStore returns the session store (for testing)
+func (e *Engine) GetSessionStore() SessionStore {
+    return e.sessions
+}
+
 // Logout revokes the current session
 func (e *Engine) Logout(ctx context.Context, refreshToken string) error {
     session, err := e.sessions.GetByRefreshToken(ctx, refreshToken)
