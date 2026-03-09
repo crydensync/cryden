@@ -1,4 +1,4 @@
-// Package cryden is the main entry point for the CrydennSync authentication engine.
+// Package cryden is the main entry point for the CrydennSync authentication engine. 
 package cryden
 
 import (
@@ -9,7 +9,7 @@ import (
         "github.com/crydensync/cryden/internal/stores/sqlite"
 )
 
-// Engine is the main authentication engine
+// Engine is the main authentication engine.
 type Engine = core.Engine
 
 // New creates an in-memory engine (perfect for testing)
@@ -19,7 +19,7 @@ func New() *Engine {
         return core.New(userStore, sessionStore)
 }
 
-// WithSQLite creates an engine with persistent SQLite storage
+// WithSQLite creates an engine with persistent, SQLite storage
 func WithSQLite(dbPath string) (*Engine, error) {
         userStore, err := sqlite.NewUserStore(dbPath)
         if err != nil {
