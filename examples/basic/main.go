@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/crydensync/cryden/cryden"
+	"github.com/crydensync/cryden"
 )
 
 func main() {
