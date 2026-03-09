@@ -196,10 +196,7 @@ If you find Cryden useful, please star the repo!
 ## 🗺️ Roadmap
 
 ### Current: v1.0.0 (March 2026)
-✅ Core authentication with email/password
-✅ JWT + refresh tokens
-✅ Rate limiting & audit logs
-✅ Multiple databases (SQLite, PostgreSQL, MongoDB)
+✅ Core authentication with email/password.                  ✅ JWT + refresh tokens.         ✅ Rate limiting & audit logs.    ✅ Multiple databases (SQLite, PostgreSQL, MongoDB)
 
 ### Coming in v1.1.0 (Q2 2026)
 🚀 CLI tool (`csax`)
@@ -234,4 +231,3 @@ le audit logger
 <div align="center">
   <sub>Built with ❤️ in Africa · Own your users, not vendor lock-in</sub>
 </div>
-```
