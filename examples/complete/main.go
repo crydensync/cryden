@@ -6,7 +6,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/crydensync/cryden/cryden"
+	"github.com/crydensync/cryden"
 )
 
 func main() {
