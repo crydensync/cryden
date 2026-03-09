@@ -90,7 +90,7 @@ Section Description
 
 🧪 Testing
 
-Cryden is designed for maximum testability:
+CrydenSync is designed for maximum testability:
 
 ```go
 func TestLogin(t *testing.T) {
@@ -138,6 +138,16 @@ PostgreSQL ✅ Stable Production
 MongoDB ✅ Stable Document stores
 MySQL 🚧 Planned v1.1.0
 Redis 🚧 Planned v1.1.0 (rate limiting)
+
+## 📛 About the Name
+
+**CrydenSync** is the full name of the project, but the Go package is simply `cryden` for brevity.
+
+```go
+import "github.com/crydensync/cryden"  // Notice: crydensync/cryden
+
+auth := cryden.New()  // Short and sweet!
+``````
 
 ## 🔒 Security Notes v1.0.0
 
