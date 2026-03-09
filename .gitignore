@@ -1,0 +1,46 @@
+# Binaries
+/bin/
+/*.test
+
+# Dependencies
+/vendor/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Test databases
+*.db
+*.db-shm
+*.db-wal
+
+# Coverage
+coverage.out
+coverage.txt
+*.cover
+
+# Build artifacts
+dist/
+release/
+
+# Environment
+.env
+.env.local
+
+# Temporary files
+tmp/
+*.tmp
+*.log
+
