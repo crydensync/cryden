@@ -25,26 +25,69 @@ Authentication is not business logic, yet every project rewrites it. Developers 
 CrydenSync is an **embeddable authentication engine** that gives you a standard, reusable auth system you control:
 
 ```go
-import "github.com/crydensync/cryden"
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    
+    "github.com/crydensync/cryden"
+)
 
 func main() {
-    engine := cryden.New()  // In-memory for testing
-    
-    // Or with persistent storage
-    // engine, _ := cryden.WithSQLite("users.db")
-    
+    // Create context
     ctx := context.Background()
     
-    // Sign up
-    user, _ := cryden.SignUp(ctx, engine, "alice@example.com", "SecurePass123")
+    // 1. Create engine (in-memory storage - perfect for testing)
+    engine := cryden.New()
+    fmt.Println("✅ Engine created")
     
-    // Login
-    tokens, _, _ := cryden.Login(ctx, engine, "alice@example.com", "SecurePass123")
+    // 2. Sign up a new user
+    email := "alice@example.com"
+    password := "SecurePass123"
     
-    // Protect routes
-    userID, _ := cryden.VerifyToken(engine, tokens.AccessToken)
-}
+    user, err := cryden.SignUp(ctx, engine, email, password)
+    if err != nil {
+        log.Fatalf("❌ SignUp failed: %v", err)
+    }
+    fmt.Printf("✅ User created: %s (%s)\n", user.ID, user.Email)
+    
+    // 3. Login
+    tokens, rateLimit, err := cryden.Login(ctx, engine, email, password)
+    if err != nil {
+        log.Fatalf("❌ Login failed: %v", err)
+    }
+    fmt.Printf("✅ Login successful!\n")
+    fmt.Printf("   Access Token: %s...\n", tokens.AccessToken[:50])
+    fmt.Printf("   Refresh Token: %s...\n", tokens.RefreshToken[:50])
+    fmt.Printf("   Rate Limit Remaining: %d\n", rateLimit.Remaining)
+    
+    // 4. Verify token
+    userID, err := cryden.VerifyToken(engine, tokens.AccessToken)
+    if err != nil {
+        log.Fatalf("❌ Token verification failed: %v", err)
+    }
+    fmt.Printf("✅ Token verified for user: %s\n", userID)
+    
+    // 5. Logout
+    err = cryden.Logout(ctx, engine, tokens.RefreshToken)
+    if err != nil {
+        log.Fatalf("❌ Logout failed: %v", err)
+    }
+    fmt.Println("✅ Logout successful")
+    
+    // 6. Try to use logged out token (should fail)
+    _, err = cryden.RefreshToken(ctx, engine, tokens.RefreshToken)
+    if err != nil {
+        fmt.Printf("✅ Expected error after logout: %v\n", err)
+    }
+    
+    fmt.Println("\n🎉 All tests passed!")
+}  
+  
 ```
+[View full example →](examples/complete/main.go)
 
 ✨ Features
 
