@@ -4,16 +4,14 @@
 
 **Embeddable authentication engine for Go — offline-first, framework-agnostic.**
 
+[![Go Version](https://img.shields.io/github/go-mod/go-version/crydensync/cryden)](https://golang.org/)
 [![Go Reference](https://pkg.go.dev/badge/github.com/crydensync/cryden.svg)](https://pkg.go.dev/github.com/crydensync/cryden)
 [![Go Report Card](https://goreportcard.com/badge/github.com/crydensync/cryden)](https://goreportcard.com/report/github.com/crydensync/cryden)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
-<!-- Social Stats - These will show numbers even if zero -->
-[![GitHub Stars](https://img.shields.io/github/stars/crydensync/cryden?style=social)](https://github.com/crydensync/cryden/stargazers)
-[![GitHub Forks](https://img.shields.io/github/forks/crydensync/cryden?style=social)](https://github.com/crydensync/cryden/network/members)
-[![GitHub Watchers](https://img.shields.io/github/watchers/crydensync/cryden?style=social)](https://github.com/crydensync/cryden/watchers)
-[![GitHub Downloads](https://img.shields.io/github/downloads/crydensync/cryden/total)](https://github.com/crydensync/cryden/releases)
-
+[![GitHub Release](https://img.shields.io/github/v/release/crydensync/cryden)](https://github.com/crydensync/cryden/releases)
+[![Go Downloads](https://img.shields.io/github/downloads/crydensync/cryden/total)](https://github.com/crydensync/cryden/releases)
+[![Stars](https://img.shields.io/github/stars/crydensync/cryden?style=social)](https://github.com/crydensync/cryden/stargazers)
+![GitHub Forks](https://img.shields.io/github/forks/crydensync/cryden?style=social)
 
 </div>
 ## 🎯 The Problem
@@ -506,17 +504,12 @@ If you find Cryden useful, please star the repo!
 
 | Metric | Value |
 |--------|-------|
-| ⭐ Stars | [![Stars](https://img.shields.io/github/stars/crydensync/cryden?style=flat&logo=github)](https://github.com/crydensync/cryden/stargazers) |
-| 🍴 Forks | [![Forks](https://img.shields.io/github/forks/crydensync/cryden?style=flat&logo=github)](https://github.com/crydensync/cryden/network/members) |
-| 👀 Watchers | [![Watchers](https://img.shields.io/github/watchers/crydensync/cryden?style=flat&logo=github)](https://github.com/crydensync/cryden/watchers) |
-| 📥 Downloads | [![Downloads](https://img.shields.io/github/downloads/crydensync/cryden/total?style=flat&logo=github)](https://github.com/crydensync/cryden/releases) |
-| 🏷️ Version | [![Version](https://img.shields.io/github/v/release/crydensync/cryden?style=flat&logo=github)](https://github.com/crydensync/cryden/releases) |
+| ⭐ Stars | [![Stars](https://img.shields.io/github/stars/crydensync/cryden)](https://github.com/crydensync/cryden/stargazers) |
+| 📥 Downloads | [![Downloads](https://img.shields.io/github/downloads/crydensync/cryden/total)](https://github.com/crydensync/cryden/releases) |
+| 🏷️ Version | [![Version](https://img.shields.io/github/v/release/crydensync/cryden)](https://github.com/crydensync/cryden/releases) |
 | ✅ Build | [![Build](https://github.com/crydensync/cryden/actions/workflows/test.yml/badge.svg)](https://github.com/crydensync/cryden/actions/workflows/test.yml) |
-| 📚 Docs | [![Go Reference](https://pkg.go.dev/badge/github.com/crydensync/cryden.svg)](https://pkg.go.dev/github.com/crydensync/cryden) |
-| 📦 Go Version | [![Go Version](https://img.shields.io/github/go-mod/go-version/crydensync/cryden)](https://golang.org) |
-| 📄 License | [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) |
-
----
+| 📚 Docs | [![Go Reference](https://pkg.go.dev/badge/github.com/crydensync/cryden)](https://pkg.go.dev/github.com/crydensync/cryden) |
+| 🍴 Forks | ![GitHub Forks](https://img.shields.io/github/forks/crydensync/cryden?style=social)
 
 ## 🗺️ Roadmap
 
