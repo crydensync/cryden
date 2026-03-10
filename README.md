@@ -1,7 +1,5 @@
 # CrydenSync 🔐
 
-# CrydenSync 🔐
-
 <div align="center">
 
 **Embeddable authentication engine for Go — offline-first, framework-agnostic.**
@@ -123,6 +121,21 @@ WebAuthn/Passkeys 📅 Future v2.0.0
 ```bash
 go get github.com/crydensync/cryden@v1.0.0
 ```
+
+```markdown
+## 🧪 Local Development
+
+Want to hack on CrydenSync itself? Use it locally in your own app:
+
+```bash
+git clone https://github.com/crydensync/cryden.git
+cd your-app
+go mod edit -replace github.com/crydensync/cryden=../cryden
+go run main.go  # Uses your local version!
+```
+
+📚 Full Local Dev Guide → (CrydenSync web docs soon)
+
 
 📖 Documentation
 

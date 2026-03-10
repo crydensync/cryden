@@ -44,25 +44,6 @@ Cryden is built for developers worldwide, with special consideration for:
    go run main.go
    ```
 
-📁 Project Structure
-
-```
-cryden/
-├── internal/           # Private code (not importable)
-│   ├── core/          # Core engine
-│   ├── auth/          # Auth flows
-│   ├── token/         # Token management
-│   ├── session/       # Session management
-│   ├── security/      # Hasher, audit, rate limiter
-│   ├── validation/    # Email/password validation
-│   ├── stores/        # Database implementations
-│   └── tests/         # Integration tests
-├── cryden/            # Public API (what users import)
-├── examples/          # Usage examples
-├── docs/              # Documentation
-└── scripts/           # Build scripts
-```
-
 🧪 Testing Guidelines
 
 Write Tests First
@@ -237,7 +218,7 @@ Contributors will be:
 
 🎉 Thank You!
 
-Your contributions make Cryden better for everyone, especially developers in:
+Your contributions make CrydenSync better for everyone, especially developers in:
 
 · 🌍 Africa (offline-first, low bandwidth)
 · 🚀 Startups (no vendor lock-in)
