@@ -29,6 +29,36 @@ func WithSQLite(dbPath string) (*Engine, error) {
         return core.New(userStore, sessionStore), nil
 }
 
+// WithMongoDB creates an engine with MongoDB storage
+func WithMongoDB(uri, dbName string) (*Engine, error) {
+    userStore, err := mongodb.NewUserStore(uri, dbName)
+    if err != nil {
+        return nil, err
+    }
+    
+    sessionStore, err := mongodb.NewSessionStore(uri, dbName)
+    if err != nil {
+        return nil, err
+    }
+    
+    return core.New(userStore, sessionStore), nil
+}
+
+// WithPostgreSQL creates an engine with PostgreSQL storage
+func WithPostgreSQL(connStr string) (*Engine, error) {
+    userStore, err := postgres.NewUserStore(connStr)
+    if err != nil {
+        return nil, err
+    }
+    
+    // Get the DB connection from user store to reuse
+    db := userStore.GetDB() // You'll need to add this method
+    
+    sessionStore := postgres.NewSessionStore(db)
+    
+    return core.New(userStore, sessionStore), nil
+}
+
 // ==================== AUTHENTICATION FLOWS ====================
 
 // SignUp creates a new user account
