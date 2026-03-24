@@ -2,9 +2,13 @@ package core
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+  "time"
+
+	"github.com/crydensync/cryden/internal/token"
 	"github.com/golang-jwt/jwt/v5"
-	"time"
 )
 
 // Engine is the main authentication engine
@@ -14,6 +18,7 @@ type Engine struct {
 	hasher      Hasher
 	rateLimiter RateLimiter
 	auditLogger AuditLogger
+	tokenSvc    *token.Service
 	config      Config
 }
 
@@ -44,6 +49,7 @@ func New(users UserStore, sessions SessionStore) *Engine {
 		users:       users,
 		sessions:    sessions,
 		hasher:      NewBcryptHasher(10),
+		tokenSvc:    token.NewService(hasher),
 		rateLimiter: NewMemoryRateLimiter(5, time.Minute), // 5 attempts per minute
 		auditLogger: NewConsoleAuditLogger(),              //default
 		config:      DefautConfig(),
@@ -206,6 +212,49 @@ func (e *Engine) Login(ctx context.Context, email, password string) (*TokenPair,
 	return tokens, &result, nil
 }
 
+// generateTokens creates JWT access token and hashed refresh token
+func (e *Engine) generateTokens(ctx context.Context, userID string) (*TokenPair, error) {
+    // Generate JWT access token
+    now := time.Now()
+    claims := Claims{
+        UserID: userID,
+        RegisteredClaims: jwt.RegisteredClaims{
+            ExpiresAt: jwt.NewNumericDate(now.Add(e.config.AccessTokenTTL)),
+            IssuedAt:  jwt.NewNumericDate(now),
+            NotBefore: jwt.NewNumericDate(now),
+            Issuer:    e.config.Issuer,
+            Subject:   userID,
+            ID:        generateID(),
+        },
+    }
+
+    token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+    accessToken, err := token.SignedString([]byte(e.config.JWTSecret))
+    if err != nil {
+        return nil, fmt.Errorf("failed to sign access token: %w", err)
+    }
+
+    // Generate refresh token with hashes
+    bundle, err := e.tokenSvc.GenerateRefreshToken()
+    if err != nil {
+        return nil, fmt.Errorf("failed to generate refresh token: %w", err)
+    }
+
+    // Create session with hashed tokens
+    session,  err := e.sessions.Create(ctx, userID, bundle.StorageHash, bundle.LookupHash)
+    if err != nil {
+        return nil, fmt.Errorf("failed to create session: %w", err)
+    }
+
+    return &TokenPair{
+        AccessToken:  accessToken,
+        RefreshToken: bundle.PlainText, // Send plain token to client
+        TokenType:    "Bearer",
+        ExpiresIn:    int64(e.config.AccessTokenTTL.Seconds()),
+    }, nil
+}
+
+/*
 // generateTokens creates JWT access token and refresh token
 func (e *Engine) generateTokens(ctx context.Context, userID string) (*TokenPair, error) {
 	// Generate JWT access token
@@ -241,6 +290,7 @@ func (e *Engine) generateTokens(ctx context.Context, userID string) (*TokenPair,
 		ExpiresIn:    int64(e.config.AccessTokenTTL.Seconds()),
 	}, nil
 }
+*/
 
 // VerifyToken validates a JWT  access token
 func (e *Engine) VerifyToken(tokenString string) (*Claims, error) {
@@ -261,6 +311,62 @@ func (e *Engine) VerifyToken(tokenString string) (*Claims, error) {
 	return nil, ErrInvalidToken
 }
 
+// RefreshToken issues new tokens and rotates the refresh token
+func (e *Engine) RefreshToken(ctx context.Context, plainToken string) (*TokenPair, error) {
+    // Generate lookup hash from plain token
+    sha := sha256.Sum256([]byte(plainToken))
+    lookupHash := hex.EncodeToString(sha[:])
+
+    // Find session by lookup hash
+    session, err := e.sessions.GetByRefreshToken(ctx, lookupHash)
+    if err != nil {
+        return nil, ErrInvalidToken
+    }
+
+    // Verify the token matches the stored hash (bcrypt compare)
+    if err := e.tokenSvc.VerifyRefreshToken(plainToken, session.RefreshToken); err != nil {
+        // Token doesn't match stored hash - possible tampering
+        e.auditLogger.Log(ctx, AuditEntry{
+            Timestamp: time.Now(),
+            UserID:    session.UserID,
+            Action:    "TOKEN_TAMPERING",
+            Status:    "BLOCKED",
+            Metadata: map[string]interface{}{
+                "session_id": session.ID,
+            },
+        })
+        // Revoke session as security measure
+        e.sessions.Revoke(ctx, session.ID)
+        return nil, ErrInvalidToken
+    }
+
+    // Check expiration
+    if time.Now().After(session.ExpiresAt) {
+        e.sessions.Revoke(ctx, session.ID)
+        return nil, ErrInvalidToken
+    }
+
+    // Generate new tokens (token rotation)
+    newTokens, err := e.generateTokens(ctx, session.UserID)
+    if err != nil {
+        return nil, err
+    }
+
+    // Revoke old session
+    e.sessions.Revoke(ctx, session.ID)
+
+    // Audit
+    e.auditLogger.Log(ctx, AuditEntry{
+        Timestamp: time.Now(),
+        UserID:    session.UserID,
+        Action:    ActionTokenRefresh,
+        Status:    "SUCCESS",
+    })
+
+    return newTokens, nil
+}
+
+/*
 func (e *Engine) RefreshToken(ctx context.Context, refreshToken string) (*TokenPair, error) {
 	// Find session
 	session, err := e.sessions.GetByRefreshToken(ctx, refreshToken)
@@ -293,6 +399,7 @@ func (e *Engine) RefreshToken(ctx context.Context, refreshToken string) (*TokenP
 
 	return tokens, nil
 }
+*/
 
 // Helper to generate IDs (move to a utils file later)
 func generateID() string {
