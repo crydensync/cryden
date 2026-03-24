@@ -52,10 +52,12 @@ func autoMigrate(db *sql.DB) error {
             id TEXT PRIMARY KEY,
             user_id TEXT NOT NULL,
             refresh_token TEXT UNIQUE NOT NULL,
+            lookup_hash TEXT UNIQUE NOT NULL,
             created_at TIMESTAMP NOT NULL,
             expires_at TIMESTAMP NOT NULL,
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         );
+        CREATE INDEX IF NOT EXISTS idx_sessions_lookup ON sessions(lookup_hash);
         CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
         CREATE INDEX IF NOT EXISTS idx_sessions_refresh_token ON sessions(refresh_token);
     `
