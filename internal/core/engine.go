@@ -128,6 +128,89 @@ func (e *Engine) SignUp(ctx context.Context, email, password string) (*User, err
 
 // Login authenticates a user and returns tokens
 func (e *Engine) Login(ctx context.Context, email, password string) (*TokenPair, *LimitResult, error) {
+    key := "login:" + getClientIP(ctx)
+
+    // Check rate limit
+    result, err := e.rateLimiter.Allow(ctx, key)
+    if err != nil {
+        return nil, &result, err
+    }
+
+    if !result.Allowed {
+        e.auditLogger.Log(ctx, AuditEntry{
+            Timestamp: time.Now(),
+            Action:    ActionRateLimited,
+            Status:    "BLOCKED",
+            IPAddress: getClientIP(ctx),
+            Metadata: map[string]interface{}{
+                "remaining": result.Remaining,
+                "reset":     result.Reset,
+            },
+        })
+        return nil, &result, ErrTooManyAttempts
+    }
+
+    // Find user
+    user, err := e.users.GetByEmail(ctx, email)
+    if err != nil {
+        if err == ErrUserNotFound {
+            e.auditLogger.Log(ctx, AuditEntry{
+                Timestamp: time.Now(),
+                Action:    ActionSignInFailed,
+                Status:    "FAILED",
+                Error:     "user not found",
+                IPAddress: getClientIP(ctx),
+            })
+            return nil, &result, ErrInvalidCredentials
+        }
+        return nil, &result, err
+    }
+
+    // Check password
+    if err := e.hasher.Compare(password, user.PasswordHash); err != nil {
+        e.auditLogger.Log(ctx, AuditEntry{
+            Timestamp: time.Now(),
+            UserID:    user.ID,
+            Action:    ActionSignInFailed,
+            Status:    "FAILED",
+            Error:     "wrong password",
+            IPAddress: getClientIP(ctx),
+        })
+        return nil, &result, ErrInvalidCredentials
+    }
+
+    // Create session and generate tokens
+    tokens, err := e.generateTokens(ctx, user.ID)
+    if err != nil {
+        return nil, &result, err
+    }
+
+    // ✅ FIXED: Reset rate limit on successful login
+    if err := e.rateLimiter.Reset(ctx, key); err != nil {
+        // Log but don't fail the login
+        e.auditLogger.Log(ctx, AuditEntry{
+            Timestamp: time.Now(),
+            UserID:    user.ID,
+            Action:    "RATE_LIMIT_RESET_FAILED",
+            Status:    "WARNING",
+            Error:     err.Error(),
+        })
+    }
+
+    e.auditLogger.Log(ctx, AuditEntry{
+        Timestamp: time.Now(),
+        UserID:    user.ID,
+        Action:    ActionSignInSuccess,
+        Status:    "SUCCESS",
+        IPAddress: getClientIP(ctx),
+    })
+
+    return tokens, &result, nil
+}
+
+/*
+// Login authenticates a user and returns tokens
+func (e *Engine) Login(ctx context.Context, email, password string) (*TokenPair, *LimitResult, error) {
 	key := "login:" + getClientIP(ctx)
 
 	// Check rate rate limit
@@ -181,11 +264,11 @@ func (e *Engine) Login(ctx context.Context, email, password string) (*TokenPair,
 	}
 
 	// Create session
-	/*session err := e.sessions.Create(ctx, user.ID)
+	session err := e.sessions.Create(ctx, user.ID)
 	if err != nil {
 		return nil, &result, err
 	}
-	*/
+	
 
 	e.auditLogger.Log(ctx, AuditEntry{
 		Timestamp: time.Now(),
@@ -211,6 +294,7 @@ func (e *Engine) Login(ctx context.Context, email, password string) (*TokenPair,
 
 	return tokens, &result, nil
 }
+*/
 
 // generateTokens creates JWT access token and hashed refresh token
 func (e *Engine) generateTokens(ctx context.Context, userID string) (*TokenPair, error) {
