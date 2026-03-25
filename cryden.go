@@ -19,6 +19,32 @@ func New() *Engine {
         return core.New(userStore, sessionStore)
 }
 
+// WithSQLite creates an engine with persistent SQLite storage
+func WithSQLite(dbPath string) (*Engine, error) {
+    // Create user store (which creates/migrates DB)
+    userStore, err := sqlite.NewUserStore(dbPath)
+    if err != nil {
+        return nil, err
+    }
+
+    // Get the DB connection from user store
+    // You'll need to add this method to UserStore
+    type dbGetter interface {
+        GetDB() *sql.DB
+    }
+    getter, ok := userStore.(dbGetter)
+    if !ok {
+        return nil, fmt.Errorf("user store does not expose DB connection")
+    }
+    db := getter.GetDB()
+
+    // Create session store with same DB
+    sessionStore := sqlite.NewSessionStore(db)
+
+    return core.New(userStore, sessionStore), nil
+}
+
+/*
 // WithSQLite creates an engine with persistent, SQLite storage
 func WithSQLite(dbPath string) (*Engine, error) {
         userStore, err := sqlite.NewUserStore(dbPath)
@@ -28,6 +54,7 @@ func WithSQLite(dbPath string) (*Engine, error) {
         sessionStore := memory.NewSessionStore() // Will replace with SQLite session store later
         return core.New(userStore, sessionStore), nil
 }
+*/
 
 // WithMongoDB creates an engine with MongoDB storage
 func WithMongoDB(uri, dbName string) (*Engine, error) {
