@@ -142,3 +142,10 @@ func (s *SessionStore) ListForUser(ctx context.Context, userID string) ([]core.S
 
     return sessions, nil
 }
+
+func (s *SessionStore) Close() error {
+    if s.db != nil {
+        return s.db.Close()
+    }
+    return nil
+}
