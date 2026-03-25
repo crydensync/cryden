@@ -131,6 +131,29 @@ func (s *SessionStore) RevokeAllForUser(ctx context.Context, userID string) erro
     return nil
 }
 
+// ListForUser returns all active sessions for a user
+func (s *SessionStore) ListForUser(ctx context.Context, userID string) ([]core.Session, error) {
+    s.mu.RLock()
+    defer s.mu.RUnlock()
+
+    sessions, exists := s.byUser[userID]
+    if !exists {
+        return []core.Session{}, nil
+    }
+
+    now := time.Now()
+    var active []core.Session
+    for _, session := range sessions {
+        if now.Before(session.ExpiresAt) {
+            // Return a copy to prevent modification
+            active = append(active, *session)
+        }
+    }
+
+    return active, nil
+}
+
+/*
 // ListForUser returns all sessions for a user
 func (s *SessionStore) ListForUser(ctx context.Context, userID string) ([]core.Session, error) {
     s.mu.RLock()
@@ -151,6 +174,7 @@ func (s *SessionStore) ListForUser(ctx context.Context, userID string) ([]core.S
 
     return result, nil
 }
+*/
 
 // Helper function to generate IDs
 func generateID() string {
