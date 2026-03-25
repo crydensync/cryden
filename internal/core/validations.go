@@ -95,6 +95,65 @@ func DefaultPasswordPolicy() PasswordPolicy {
 	}
 }
 
+func ValidatePassword(password string, policy PasswordPolicy) error {
+    // Check length
+    if len(password) < policy.MinLenght {
+        return &ValidationError{
+            Field:   "password",
+            Message: "password too short",
+            Err:     ErrPasswordTooShort,
+        }
+    }
+
+    if len(password) > policy.MaxLenght {
+        return &ValidationError{
+            Field:   "password",
+            Message: "password too long",
+            Err:     ErrPasswordTooLong,
+        }
+    }
+
+    // Check character requirements
+    var hasUpper, hasLower, hasNumber bool
+    for _, char := range password {
+        switch {
+        case unicode.IsUpper(char):
+            hasUpper = true
+        case unicode.IsLower(char):
+            hasLower = true
+        case unicode.IsDigit(char):
+            hasNumber = true
+        }
+    }
+
+    if policy.RequireUpper && !hasUpper {
+        return &ValidationError{
+            Field:   "password",
+            Message: "password must contain uppercase letter",
+            Err:     ErrPasswordNoUpper,
+        }
+    }
+
+    if policy.RequireLower && !hasLower {
+        return &ValidationError{
+            Field:   "password",
+            Message: "password must contain lowercase letter",
+            Err:     ErrPasswordNoLower,
+        }
+    }
+
+    if policy.RequireNumber && !hasNumber {
+        return &ValidationError{
+            Field:   "password",
+            Message: "password must contain number",
+            Err:     ErrPasswordNoNumber,
+        }
+    }
+
+    return nil
+}
+
+/*
 // ValidatePassword checks password against policy
 func ValidatePassword(password string, policy PasswordPolicy) error {
 	// Check lenght
@@ -154,3 +213,4 @@ func ValidatePassword(password string, policy PasswordPolicy) error {
 
 	return nil
 }
+*/
