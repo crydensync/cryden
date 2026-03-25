@@ -180,3 +180,8 @@ func (s *SessionStore) ListForUser(ctx context.Context, userID string) ([]core.S
 func generateID() string {
     return fmt.Sprintf("sess_%d", time.Now().UnixNano())
 }
+
+func (s *SessionStore) Close() error {
+    // Memory store doesn't need cleanup
+    return nil
+}

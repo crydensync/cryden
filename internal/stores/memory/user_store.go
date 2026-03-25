@@ -142,3 +142,8 @@ func (s *UserStore) Delete(ctx context.Context, id string) error {
 func generateID() string {
 	return fmt.Sprintf("usr_%d", time.Now().UnixNano())
 }
+
+func (s *UserStore) Close() error {
+    // Memory store doesn't need cleanup
+    return nil
+}
