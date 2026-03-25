@@ -506,6 +506,29 @@ func (e *Engine) Authenticate(tokenString string) (string, error) {
 	return claims.UserID, nil
 }
 
+// Close closes all store connections
+func (e *Engine) Close() error {
+    var errs []error
+    
+    if err := e.users.Close(); err != nil {
+        errs = append(errs, fmt.Errorf("failed to close user store: %w", err))
+    }
+    
+    if err := e.sessions.Close(); err != nil {
+        errs = append(errs, fmt.Errorf("failed to close session store: %w", err))
+    }
+    
+    if err := e.auditLogger.Close(); err != nil {
+        errs = append(errs, fmt.Errorf("failed to close audit logger: %w", err))
+    }
+    
+    if len(errs) > 0 {
+        return fmt.Errorf("close errors: %v", errs)
+    }
+    
+    return nil
+}
+
 // GetUser retrieves a user by ID
 func (e *Engine) GetUser(ctx context.Context, userID string) (*User, error) {
 	return e.users.GetByID(ctx, userID)
