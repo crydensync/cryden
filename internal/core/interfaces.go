@@ -10,6 +10,7 @@ type UserStore interface {
     UpdateEmail(ctx context.Context, id, newEmail string) error
     UpdatePassword(ctx context.Context, id, newPasswordHash string) error
     Delete(ctx context.Context, id string) error
+    Close() error
 }
 
 // SessionStore defines how we store and retrieve sessions
@@ -19,4 +20,5 @@ type SessionStore interface {
     Revoke(ctx context.Context, sessionID string) error
     RevokeAllForUser(ctx context.Context, userID string) error 
     ListForUser(ctx context.Context, userID string) ([]Session, error)
+    Close() error
 }
