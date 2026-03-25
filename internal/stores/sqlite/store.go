@@ -251,6 +251,11 @@ func (s *UserStore) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+// GetDB returns the underlying database connection
+func (s *UserStore) GetDB() *sql.DB {
+    return s.db
+}
+
 func (s *UserStore) Close() error {
 	return s.db.Close()
 }
