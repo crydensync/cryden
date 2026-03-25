@@ -2,7 +2,9 @@ package core
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
   "time"
@@ -336,6 +338,18 @@ func (e *Engine) generateTokens(ctx context.Context, userID string) (*TokenPair,
         TokenType:    "Bearer",
         ExpiresIn:    int64(e.config.AccessTokenTTL.Seconds()),
     }, nil
+}
+
+// generateSecureID creates a unique ID with randomness to prevent collisions
+func generateSecureID(prefix string) string {
+    // 8 bytes of randomness (64 bits) + timestamp for uniqueness
+    b := make([]byte, 8)
+    if _, err := rand.Read(b); err != nil {
+        // Fallback to timestamp only if rand fails
+        return fmt.Sprintf("%s_%d", prefix, time.Now().UnixNano())
+    }
+    random := base64.RawURLEncoding.EncodeToString(b)
+    return fmt.Sprintf("%s_%d_%s", prefix, time.Now().UnixNano(), random)
 }
 
 /*
