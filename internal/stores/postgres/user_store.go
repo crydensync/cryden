@@ -178,6 +178,19 @@ func (s *UserStore) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+/*
 func (s *UserStore) Close() error {
 	return s.db.Close()
+}
+*/
+
+func (s *UserStore) Close() error {
+    if s.db != nil {
+        return s.db.Close()
+    }
+    return nil
+}
+
+func (s *UserStore) GetDB() *sql.DB {
+    return s.db
 }
