@@ -40,6 +40,64 @@ func NewMemoryRateLimiter(limit int, window time.Duration) *MemoryRateLimiter {
 	}
 }
 
+// Allow checks if a request is within rate limit
+func (r *MemoryRateLimiter) Allow(ctx context.Context, key string) (LimitResult, error) {
+    r.mu.Lock()
+    defer r.mu.Unlock()
+
+    // Check context cancellation
+    select {
+    case <-ctx.Done():
+        return LimitResult{}, ctx.Err()
+    default:
+    }
+
+    now := time.Now()
+    cutoff := now.Add(-r.window)
+
+    // Get attempts for this key
+    attempts := r.attempts[key]
+
+    // Keep attempts only within the window
+    valid := make([]time.Time, 0)
+    for _, t := range attempts {
+        if t.After(cutoff) {
+            valid = append(valid, t)
+        }
+    }
+
+    // Check if over limit
+    if len(valid) >= r.limit {
+        // Calculate when the oldest attempt expires
+        oldest := valid[0]
+        resetTime := oldest.Add(r.window)
+
+        resetDuration := time.Until(resetTime)
+        if resetDuration < 0 {
+            resetDuration = 0
+        }
+
+        return LimitResult{
+            Allowed:   false,
+            Limit:     r.limit,
+            Remaining: 0,
+            Reset:     resetDuration,
+        }, nil
+    }
+
+    // Add this attempt
+    valid = append(valid, now)
+    r.attempts[key] = valid
+
+    return LimitResult{
+        Allowed:   true,
+        Limit:     r.limit,
+        Remaining: r.limit - len(valid),
+        Reset:     0,
+    }, nil
+}
+
+/*
 // Allow checks if a is whithin rate limit
 func (r *MemoryRateLimiter) Allow(ctx context.Context, key string) (LimitResult, error) {
 	r.mu.Lock()
@@ -84,6 +142,7 @@ func (r *MemoryRateLimiter) Allow(ctx context.Context, key string) (LimitResult,
 		Reset:     0,
 	}, nil
 }
+*/
 
 // Reset clears rate limit for a key
 func (r *MemoryRateLimiter) Reset(ctx context.Context, key string) error {
