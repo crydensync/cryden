@@ -5,7 +5,6 @@ import (
     "crypto/sha256"
     "encoding/hex"
     "testing"
-    "time"
 
     "github.com/crydensync/cryden/internal/core"
     "github.com/crydensync/cryden/internal/stores/memory"
