@@ -1,7 +1,9 @@
 package core
 
 import (
-    "context"
+	  "context"
+	  "crypto/sha256"
+		"encoding/hex"
     "time"
 )
 
@@ -76,4 +78,16 @@ func (e *Engine) GetUserStore() UserStore {
 
 func (e *Engine) GetSessionStore() SessionStore {
     return e.sessions
+}
+
+// GetHasher returns the hasher (for testing)
+func (e *Engine) GetHasher() Hasher {
+    return e.hasher
+}
+
+// GetSessionByRefreshToken returns a session using the plain refresh token
+func (e *Engine) GetSessionByRefreshToken(ctx context.Context, plainToken string) (*Session, error) {
+    sha := sha256.Sum256([]byte(plainToken))
+    lookupHash := hex.EncodeToString(sha[:])
+    return e.sessions.GetByRefreshToken(ctx, lookupHash)
 }

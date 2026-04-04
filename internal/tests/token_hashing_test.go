@@ -73,7 +73,7 @@ func TestSessionStoreWithHashedTokens(t *testing.T) {
         }
 
         // Create session
-        session, err := sessionStore.Create(ctx, user.ID, bundle.StorageHash, bundle.LookupHash)
+        _, err = sessionStore.Create(ctx, user.ID, bundle.StorageHash, bundle.LookupHash)
         if err != nil {
             t.Fatalf("Failed to create session: %v", err)
         }
@@ -211,8 +211,8 @@ func TestFullLoginFlowWithHashedTokens(t *testing.T) {
         }
 
         // Verify new token hash matches
-        if err := engine.hasher.Compare(newTokens.RefreshToken, session.RefreshToken); err != nil {
-            t.Error("New token verification failed")
-        }
+				if err := engine.GetHasher().Compare(newTokens.RefreshToken, session.RefreshToken); err != nil {
+					  t.Error("New token verification failed")
+				}
     })
 }
