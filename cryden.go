@@ -90,6 +90,15 @@ func WithPostgreSQL(connStr string) (*Engine, error) {
     return core.New(userStore, sessionStore), nil
 }
 
+// WithFileAuditLogger sets a file-based audit logger
+func WithFileAuditLogger(engine *Engine, filePath string) (*Engine, error) {
+    logger, err := core.NewFileAuditLogger(filePath)
+    if err != nil {
+        return nil, err
+    }
+    return engine.WithAuditLogger(logger), nil
+}
+
 // ==================== AUTHENTICATION FLOWS ====================
 
 // SignUp creates a new user account
