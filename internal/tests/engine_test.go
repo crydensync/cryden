@@ -448,7 +448,7 @@ func TestRefreshToken(t *testing.T) {
 		}
 
 		// New refresh token should work
-		_, err = engine.GetSessionStore().GetByRefreshToken(ctx, newTokens.RefreshToken)
+		_, err = engine.GetSessionByRefreshToken(ctx, newTokens.RefreshToken)
 		if err != nil {
 			t.Error("New session not found")
 		}

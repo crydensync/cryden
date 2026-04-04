@@ -31,6 +31,35 @@ func (s *SessionStore) Create(ctx context.Context, userID, refreshTokenHash, loo
     s.mu.Lock()
     defer s.mu.Unlock()
 
+    // Check if lookup hash already exists
+    if _, exists := s.byLookup[lookupHash]; exists {
+        return nil, fmt.Errorf("lookup hash collision")
+    }
+
+    session := &core.Session{
+        ID:           generateID(),
+        UserID:       userID,
+        RefreshToken: refreshTokenHash,
+        LookupHash:   lookupHash, // Make sure this is set
+        CreatedAt:    time.Now(),
+        ExpiresAt:    time.Now().Add(7 * 24 * time.Hour),
+    }
+
+    // Store in all maps
+    s.byID[session.ID] = session
+    s.byLookup[lookupHash] = session.ID
+    s.byUser[userID] = append(s.byUser[userID], session)
+
+    // Return a copy with LookupHash included
+    return session, nil
+}
+
+/*
+// Create stores a new session with hashed tokens
+func (s *SessionStore) Create(ctx context.Context, userID, refreshTokenHash, lookupHash string) (*core.Session, error) {
+    s.mu.Lock()
+    defer s.mu.Unlock()
+
     // Check if lookup hash already exists (should never happen with secure random)
     if _, exists := s.byLookup[lookupHash]; exists {
         return nil, fmt.Errorf("lookup hash collision - regenerate token")
@@ -52,6 +81,7 @@ func (s *SessionStore) Create(ctx context.Context, userID, refreshTokenHash, loo
 
     return session, nil
 }
+
 
 // GetByRefreshToken finds session using lookup hash
 func (s *SessionStore) GetByRefreshToken(ctx context.Context, lookupHash string) (*core.Session, error) {
@@ -77,6 +107,28 @@ func (s *SessionStore) GetByRefreshToken(ctx context.Context, lookupHash string)
     }
 
     return session, nil
+}
+*/
+
+// GetByRefreshToken finds session using lookup hash
+func (s *SessionStore) GetByRefreshToken(ctx context.Context, lookupHash string) (*core.Session, error) {
+    s.mu.RLock()
+    defer s.mu.RUnlock()
+
+    sessionID, exists := s.byLookup[lookupHash]
+    if !exists {
+        return nil, core.ErrSessionNotFound
+    }
+
+    session, exists := s.byID[sessionID]
+    if !exists {
+        delete(s.byLookup, lookupHash)
+        return nil, core.ErrSessionNotFound
+    }
+
+    // Return a copy to prevent modification
+    sessionCopy := *session
+    return &sessionCopy, nil
 }
 
 // Revoke removes a specific session
@@ -130,7 +182,7 @@ func (s *SessionStore) RevokeAllForUser(ctx context.Context, userID string) erro
 
     return nil
 }
-
+/*
 // ListForUser returns all active sessions for a user
 func (s *SessionStore) ListForUser(ctx context.Context, userID string) ([]core.Session, error) {
     s.mu.RLock()
@@ -152,9 +204,9 @@ func (s *SessionStore) ListForUser(ctx context.Context, userID string) ([]core.S
 
     return active, nil
 }
+*/
 
-/*
-// ListForUser returns all sessions for a user
+// ListForUser returns all active sessions for a user
 func (s *SessionStore) ListForUser(ctx context.Context, userID string) ([]core.Session, error) {
     s.mu.RLock()
     defer s.mu.RUnlock()
@@ -164,17 +216,20 @@ func (s *SessionStore) ListForUser(ctx context.Context, userID string) ([]core.S
         return []core.Session{}, nil
     }
 
-    // Return a copy to prevent modification
-    result := make([]core.Session, len(sessions))
-    for i, session := range sessions {
-        result[i] = *session
-        // Don't expose lookup hash in list responses
-        result[i].LookupHash = ""
+    // Filter out expired sessions and hide lookup hash
+    now := time.Now()
+    var active []core.Session
+    for _, session := range sessions {
+        if now.Before(session.ExpiresAt) {
+            // Create a copy without the lookup hash
+            activeSession := *session
+            activeSession.LookupHash = "" // Hide lookup hash
+            active = append(active, activeSession)
+        }
     }
 
-    return result, nil
+    return active, nil
 }
-*/
 
 // Helper function to generate IDs
 func generateID() string {

@@ -2,7 +2,6 @@ package memory
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
@@ -23,10 +22,6 @@ func NewUserStore() *UserStore {
 		byEmail: make(map[string]*core.User),
 		byID:    make(map[string]*core.User),
 	}
-}
-
-func (s *UserStore) Close() error {
-	return nil
 }
 
 // Create stores a user
@@ -136,11 +131,6 @@ func (s *UserStore) Delete(ctx context.Context, id string) error {
 	delete(s.byID, user.ID)
 
 	return nil
-}
-
-// Helper functions to generate IDs
-func generateID() string {
-	return fmt.Sprintf("usr_%d", time.Now().UnixNano())
 }
 
 func (s *UserStore) Close() error {

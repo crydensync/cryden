@@ -2,7 +2,10 @@ package core
 
 import (
     "context"
+    "crypto/sha256"
+    "encoding/hex"
     "time"
+
 )
 
 // ListSessions returns all active sessions for a user
@@ -17,7 +20,11 @@ func (e *Engine) RevokeSession(ctx context.Context, sessionID string) error {
 
 // Logout revokes the current session
 func (e *Engine) Logout(ctx context.Context, refreshToken string) error {
-    session, err := e.sessions.GetByRefreshToken(ctx, refreshToken)
+    // Generate lookup hash from plain token
+    sha := sha256.Sum256([]byte(refreshToken))
+    lookupHash := hex.EncodeToString(sha[:])
+    
+    session, err := e.sessions.GetByRefreshToken(ctx, lookupHash)
     if err != nil {
         return ErrInvalidToken
     }
