@@ -63,7 +63,7 @@ func (e *Engine) SignUp(ctx context.Context, email, password string) (*User, err
 }
 
 // Login authenticates a user and returns tokens
-func (e *Engine) Login(ctx context.Context, email, password string) (*TokenPair, *LimitResult, error) {
+func (e *Engine) Login(ctx context.Context, email, password string, deviceInfo *DeviceInfo, ipAddress string) (*TokenPair, *LimitResult, error) {
     key := "login:" + getClientIP(ctx)
 
     // Check rate limit
@@ -116,7 +116,7 @@ func (e *Engine) Login(ctx context.Context, email, password string) (*TokenPair,
     }
 
     // Generate tokens
-    tokens, err := e.generateTokens(ctx, user.ID)
+    tokens, err := e.generateTokens(ctx, user.ID, deviceInfo, ipAddress)
     if err != nil {
         return nil, &result, err
     }
@@ -195,7 +195,7 @@ func (e *Engine) RefreshToken(ctx context.Context, plainToken string) (*TokenPai
 }
 
 // generateTokens creates JWT access token and refresh token
-func (e *Engine) generateTokens(ctx context.Context, userID string) (*TokenPair, error) {
+func (e *Engine) generateTokens(ctx context.Context, userID string, deviceInfo *DeviceInfo, ipAddress string) (*TokenPair, error) {
     // Generate JWT access token
     now := time.Now()
     claims := Claims{
@@ -216,7 +216,7 @@ func (e *Engine) generateTokens(ctx context.Context, userID string) (*TokenPair,
         return nil, fmt.Errorf("failed to sign access token: %w", err)
     }
 
-    // Generate refresh token with proper hashing
+    // Generate refresh token
     tokenBytes := make([]byte, 32)
     if _, err := rand.Read(tokenBytes); err != nil {
         return nil, fmt.Errorf("failed to generate refresh token: %w", err)
@@ -233,8 +233,8 @@ func (e *Engine) generateTokens(ctx context.Context, userID string) (*TokenPair,
         return nil, fmt.Errorf("failed to hash refresh token: %w", err)
     }
     
-    // Create session with both hashes
-    session, err := e.sessions.Create(ctx, userID, storageHash, lookupHash)
+    // Create session
+    session, err := e.sessions.Create(ctx, userID, storageHash, lookupHash, deviceInfo, ipAddress)
     if err != nil {
         return nil, fmt.Errorf("failed to create session: %w", err)
     }
