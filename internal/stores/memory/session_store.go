@@ -14,7 +14,7 @@ type SessionStore struct {
     mu       sync.RWMutex
     byID     map[string]*core.Session
     byUser   map[string][]*core.Session
-    byLookup map[string]string // lookupHash -> sessionID
+    byLookup map[string]string
 }
 
 // NewSessionStore creates a new in-memory session store
@@ -26,89 +26,77 @@ func NewSessionStore() *SessionStore {
     }
 }
 
-// Create stores a new session with hashed tokens
-func (s *SessionStore) Create(ctx context.Context, userID, refreshTokenHash, lookupHash string) (*core.Session, error) {
+// Create stores a new session
+func (s *SessionStore) Create(ctx context.Context, userID, refreshTokenHash, lookupHash string, device *core.DeviceInfo, ipAddress string) (*core.Session, error) {
     s.mu.Lock()
     defer s.mu.Unlock()
 
-    // Check if lookup hash already exists
     if _, exists := s.byLookup[lookupHash]; exists {
         return nil, fmt.Errorf("lookup hash collision")
     }
 
+    now := time.Now()
     session := &core.Session{
         ID:           generateID(),
         UserID:       userID,
         RefreshToken: refreshTokenHash,
-        LookupHash:   lookupHash, // Make sure this is set
-        CreatedAt:    time.Now(),
-        ExpiresAt:    time.Now().Add(7 * 24 * time.Hour),
+        LookupHash:   lookupHash,
+        CreatedAt:    now,
+        ExpiresAt:    now.Add(7 * 24 * time.Hour),
+        LastSeenAt:   now,
+        IPAddress:    ipAddress,
     }
 
-    // Store in all maps
+    if device != nil {
+        session.DeviceName = device.DeviceName
+        session.DeviceType = device.DeviceType
+        session.Browser = device.Browser
+        session.OS = device.OS
+    }
+
     s.byID[session.ID] = session
     s.byLookup[lookupHash] = session.ID
     s.byUser[userID] = append(s.byUser[userID], session)
 
-    // Return a copy with LookupHash included
     return session, nil
 }
 
-/*
-// Create stores a new session with hashed tokens
-func (s *SessionStore) Create(ctx context.Context, userID, refreshTokenHash, lookupHash string) (*core.Session, error) {
+// UpdateLastSeen updates the last seen time for a session
+func (s *SessionStore) UpdateLastSeen(ctx context.Context, sessionID string) error {
     s.mu.Lock()
     defer s.mu.Unlock()
 
-    // Check if lookup hash already exists (should never happen with secure random)
-    if _, exists := s.byLookup[lookupHash]; exists {
-        return nil, fmt.Errorf("lookup hash collision - regenerate token")
+    session, exists := s.byID[sessionID]
+    if !exists {
+        return core.ErrSessionNotFound
     }
 
-    session := &core.Session{
-        ID:           generateID(),
-        UserID:       userID,
-        RefreshToken: refreshTokenHash, // bcrypt hash
-        LookupHash:   lookupHash,       // SHA256 lookup hash
-        CreatedAt:    time.Now(),
-        ExpiresAt:    time.Now().Add(7 * 24 * time.Hour), // 7 days
-    }
-
-    // Store in all maps
-    s.byID[session.ID] = session
-    s.byLookup[lookupHash] = session.ID
-    s.byUser[userID] = append(s.byUser[userID], session)
-
-    return session, nil
+    session.LastSeenAt = time.Now()
+    return nil
 }
 
-
-// GetByRefreshToken finds session using lookup hash
-func (s *SessionStore) GetByRefreshToken(ctx context.Context, lookupHash string) (*core.Session, error) {
+// ListForUser returns all sessions for a user
+func (s *SessionStore) ListForUser(ctx context.Context, userID string) ([]core.Session, error) {
     s.mu.RLock()
     defer s.mu.RUnlock()
 
-    // Fast lookup by index
-    sessionID, exists := s.byLookup[lookupHash]
+    sessions, exists := s.byUser[userID]
     if !exists {
-        return nil, core.ErrSessionNotFound
+        return []core.Session{}, nil
     }
 
-    session, exists := s.byID[sessionID]
-    if !exists {
-        // Inconsistent state - clean up
-        delete(s.byLookup, lookupHash)
-        return nil, core.ErrSessionNotFound
+    now := time.Now()
+    var active []core.Session
+    for _, session := range sessions {
+        if now.Before(session.ExpiresAt) {
+            activeSession := *session
+            activeSession.LookupHash = ""
+            active = append(active, activeSession)
+        }
     }
 
-    // Check expiration
-    if time.Now().After(session.ExpiresAt) {
-        return nil, core.ErrInvalidToken
-    }
-
-    return session, nil
+    return active, nil
 }
-*/
 
 // GetByRefreshToken finds session using lookup hash
 func (s *SessionStore) GetByRefreshToken(ctx context.Context, lookupHash string) (*core.Session, error) {
@@ -141,7 +129,6 @@ func (s *SessionStore) Revoke(ctx context.Context, sessionID string) error {
         return core.ErrSessionNotFound
     }
 
-    // Remove from lookup map
     delete(s.byLookup, session.LookupHash)
 
     // Remove from ID map
@@ -177,58 +164,9 @@ func (s *SessionStore) RevokeAllForUser(ctx context.Context, userID string) erro
         delete(s.byID, session.ID)
     }
 
-    // Clear user's session list
     delete(s.byUser, userID)
 
     return nil
-}
-/*
-// ListForUser returns all active sessions for a user
-func (s *SessionStore) ListForUser(ctx context.Context, userID string) ([]core.Session, error) {
-    s.mu.RLock()
-    defer s.mu.RUnlock()
-
-    sessions, exists := s.byUser[userID]
-    if !exists {
-        return []core.Session{}, nil
-    }
-
-    now := time.Now()
-    var active []core.Session
-    for _, session := range sessions {
-        if now.Before(session.ExpiresAt) {
-            // Return a copy to prevent modification
-            active = append(active, *session)
-        }
-    }
-
-    return active, nil
-}
-*/
-
-// ListForUser returns all active sessions for a user
-func (s *SessionStore) ListForUser(ctx context.Context, userID string) ([]core.Session, error) {
-    s.mu.RLock()
-    defer s.mu.RUnlock()
-
-    sessions, exists := s.byUser[userID]
-    if !exists {
-        return []core.Session{}, nil
-    }
-
-    // Filter out expired sessions and hide lookup hash
-    now := time.Now()
-    var active []core.Session
-    for _, session := range sessions {
-        if now.Before(session.ExpiresAt) {
-            // Create a copy without the lookup hash
-            activeSession := *session
-            activeSession.LookupHash = "" // Hide lookup hash
-            active = append(active, activeSession)
-        }
-    }
-
-    return active, nil
 }
 
 // Helper function to generate IDs

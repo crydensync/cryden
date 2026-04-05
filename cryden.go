@@ -95,8 +95,9 @@ func SignUp(ctx context.Context, engine *Engine, email, password string) (*User,
 }
 
 // Login authenticates a user and returns tokens
-func Login(ctx context.Context, engine *Engine, email, password string) (*TokenPair, *LimitResult, error) {
-        return engine.Login(ctx, email, password)
+func Login(ctx context.Context, engine *Engine, email, password string, userAgent, ipAddress string) (*TokenPair, *LimitResult, error) {
+    deviceInfo := core.ParseUserAgent(userAgent)
+    return engine.Login(ctx, email, password, deviceInfo, ipAddress)
 }
 
 // Logout revokes the current session
@@ -136,6 +137,11 @@ func VerifyToken(engine *Engine, tokenString string) (string, error) {
                 return "", err
         }
         return claims.UserID, nil
+}
+
+// LoginWithDevice is a convenience method that extracts device from context
+func LoginWithDevice(ctx context.Context, engine *Engine, email, password string, userAgent, ipAddress string) (*TokenPair, *LimitResult, error) {
+    return Login(ctx, engine, email, password, userAgent, ipAddress)
 }
 
 // ==================== USER MANAGEMENT ====================
