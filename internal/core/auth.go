@@ -194,62 +194,6 @@ func (e *Engine) RefreshToken(ctx context.Context, plainToken string) (*TokenPai
     return newTokens, nil
 }
 
-
-/*
-// RefreshToken issues new tokens and rotates the refresh token
-func (e *Engine) RefreshToken(ctx context.Context, plainToken string) (*TokenPair, error) {
-    // Generate lookup hash from plain token
-    sha := sha256.Sum256([]byte(plainToken))
-    lookupHash := hex.EncodeToString(sha[:])
-
-    // Find session by lookup hash
-    session, err := e.sessions.GetByRefreshToken(ctx, lookupHash)
-    if err != nil {
-        return nil, ErrInvalidToken
-    }
-
-    // Verify the token matches the stored hash
-    if err := e.hasher.Compare(plainToken, session.RefreshToken); err != nil {
-        e.auditLogger.Log(ctx, AuditEntry{
-            Timestamp: time.Now(),
-            UserID:    session.UserID,
-            Action:    "TOKEN_TAMPERING",
-            Status:    "BLOCKED",
-            Metadata: map[string]interface{}{
-                "session_id": session.ID,
-            },
-        })
-        e.sessions.Revoke(ctx, session.ID)
-        return nil, ErrInvalidToken
-    }
-
-    // Check expiration
-    if time.Now().After(session.ExpiresAt) {
-        e.sessions.Revoke(ctx, session.ID)
-        return nil, ErrInvalidToken
-    }
-
-    // Generate new tokens
-    newTokens, err := e.generateTokens(ctx, session.UserID)
-    if err != nil {
-        return nil, err
-    }
-
-    // Revoke old session
-    e.sessions.Revoke(ctx, session.ID)
-
-    // Audit
-    e.auditLogger.Log(ctx, AuditEntry{
-        Timestamp: time.Now(),
-        UserID:    session.UserID,
-        Action:    ActionTokenRefresh,
-        Status:    "SUCCESS",
-    })
-
-    return newTokens, nil
-}
-*/
-
 // generateTokens creates JWT access token and refresh token
 func (e *Engine) generateTokens(ctx context.Context, userID string) (*TokenPair, error) {
     // Generate JWT access token
@@ -308,60 +252,6 @@ func (e *Engine) generateTokens(ctx context.Context, userID string) (*TokenPair,
     }, nil
 }
 
-/*
-// generateTokens creates JWT access token and hashed refresh token
-func (e *Engine) generateTokens(ctx context.Context, userID string) (*TokenPair, error) {
-    // Generate JWT access token
-    now := time.Now()
-    claims := Claims{
-        UserID: userID,
-        RegisteredClaims: jwt.RegisteredClaims{
-            ExpiresAt: jwt.NewNumericDate(now.Add(e.config.AccessTokenTTL)),
-            IssuedAt:  jwt.NewNumericDate(now),
-            NotBefore: jwt.NewNumericDate(now),
-            Issuer:    e.config.Issuer,
-            Subject:   userID,
-            ID:        generateSecureID("tok"),
-        },
-    }
-
-    token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-    accessToken, err := token.SignedString([]byte(e.config.JWTSecret))
-    if err != nil {
-        return nil, fmt.Errorf("failed to sign access token: %w", err)
-    }
-
-    // Generate refresh token with proper hashing
-    // 1. Create secure random token
-    tokenBytes := make([]byte, 32)
-    if _, err := rand.Read(tokenBytes); err != nil {
-        return nil, fmt.Errorf("failed to generate refresh token: %w", err)
-    }
-    plainToken := base64.RawURLEncoding.EncodeToString(tokenBytes)
-    
-    // 2. Generate SHA256 lookup hash (for fast DB lookup)
-    sha := sha256.Sum256([]byte(plainToken))
-    lookupHash := hex.EncodeToString(sha[:])
-    
-    // 3. Generate bcrypt storage hash (for secure verification)
-    storageHash, err := e.hasher.Hash(plainToken)
-    if err != nil {
-        return nil, fmt.Errorf("failed to hash refresh token: %w", err)
-    }
-    
-   // Create session with both hashes
-if _, err := e.sessions.Create(ctx, userID, storageHash, lookupHash); err != nil {
-    return nil, fmt.Errorf("failed to create session: %w", err)
-}
-
-return &TokenPair{
-    AccessToken:  accessToken,
-    RefreshToken: plainToken,
-    TokenType:    "Bearer",
-    ExpiresIn:    int64(e.config.AccessTokenTTL.Seconds()),
-}, nil
-}
-*/
 // Authenticate extracts user ID from token
 func (e *Engine) Authenticate(tokenString string) (string, error) {
     claims, err := e.VerifyToken(tokenString)

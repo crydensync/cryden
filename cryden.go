@@ -48,18 +48,6 @@ func WithSQLite(dbPath string) (*Engine, error) {
     return core.New(userStore, sessionStore), nil
 }
 
-/*
-// WithSQLite creates an engine with persistent, SQLite storage
-func WithSQLite(dbPath string) (*Engine, error) {
-        userStore, err := sqlite.NewUserStore(dbPath)
-        if err != nil {
-                return nil, err
-        }
-        sessionStore := memory.NewSessionStore() // Will replace with SQLite session store later
-        return core.New(userStore, sessionStore), nil
-}
-*/
-
 // WithMongoDB creates an engine with MongoDB storage
 func WithMongoDB(uri, dbName string) (*Engine, error) {
     userStore, err := mongodb.NewUserStore(uri, dbName)
