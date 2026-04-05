@@ -13,12 +13,25 @@ type UserStore interface {
     Close() error
 }
 
+/*
 // SessionStore defines how we store and retrieve sessions
 type SessionStore interface {
     Create(ctx context.Context, userID, refreshTokenHash, lookupHash string) (*Session, error)
     GetByRefreshToken(ctx context.Context, lookupHash string) (*Session, error)
     Revoke(ctx context.Context, sessionID string) error
     RevokeAllForUser(ctx context.Context, userID string) error 
+    ListForUser(ctx context.Context, userID string) ([]Session, error)
+    Close() error
+}
+*/
+
+// SessionStore defines how we store and retrieve sessions
+type SessionStore interface {
+    Create(ctx context.Context, userID, refreshTokenHash, lookupHash string, device *DeviceInfo, ipAddress string) (*Session, error)
+    UpdateLastSeen(ctx context.Context, sessionID string) error
+    GetByRefreshToken(ctx context.Context, lookupHash string) (*Session, error)
+    Revoke(ctx context.Context, sessionID string) error
+    RevokeAllForUser(ctx context.Context, userID string) error
     ListForUser(ctx context.Context, userID string) ([]Session, error)
     Close() error
 }

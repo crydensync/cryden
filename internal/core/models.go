@@ -14,6 +14,24 @@ type User struct {
     UpdatedAt    time.Time
 }
 
+// Session represents a user session
+type Session struct {
+    ID           string    `json:"id"`
+    UserID       string    `json:"user_id"`
+    RefreshToken string    `json:"refresh_token"`
+    LookupHash   string    `json:"-"`
+    CreatedAt    time.Time `json:"created_at"`
+    ExpiresAt    time.Time `json:"expires_at"`
+    LastSeenAt   time.Time `json:"last_seen_at"`
+    IPAddress    string    `json:"ip_address,omitempty"`
+    DeviceName   string    `json:"device_name,omitempty"`
+    DeviceType   string    `json:"device_type,omitempty"`
+    Browser      string    `json:"browser,omitempty"`
+    OS           string    `json:"os,omitempty"`
+    Location     string    `json:"location,omitempty"`
+}
+
+/*
 // Session represents a user session with hashed refresh token
 type Session struct {
     ID           string
@@ -23,6 +41,7 @@ type Session struct {
     CreatedAt    time.Time
     ExpiresAt    time.Time
 }
+*/
 
 // TokenPair contains access and refresh tokens
 type TokenPair struct {
