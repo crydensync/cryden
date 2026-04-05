@@ -11,22 +11,25 @@ import (
     "go.mongodb.org/mongo-driver/mongo/options"
 )
 
-// SessionStore implements core.SessionStore with MongoDB
 type SessionStore struct {
     collection *mongo.Collection
 }
 
-// mongoSession represents a session in MongoDB
 type mongoSession struct {
     ID           string    `bson:"_id"`
     UserID       string    `bson:"user_id"`
-    RefreshToken string    `bson:"refresh_token"`  // bcrypt hash
-    LookupHash   string    `bson:"lookup_hash"`    // SHA256 hash (UNIQUE)
+    RefreshToken string    `bson:"refresh_token"`
+    LookupHash   string    `bson:"lookup_hash"`
     CreatedAt    time.Time `bson:"created_at"`
     ExpiresAt    time.Time `bson:"expires_at"`
+    LastSeenAt   time.Time `bson:"last_seen_at"`
+    IPAddress    string    `bson:"ip_address,omitempty"`
+    DeviceName   string    `bson:"device_name,omitempty"`
+    DeviceType   string    `bson:"device_type,omitempty"`
+    Browser      string    `bson:"browser,omitempty"`
+    OS           string    `bson:"os,omitempty"`
 }
 
-// NewSessionStore creates a new MongoDB session store
 func NewSessionStore(uri, dbName string) (*SessionStore, error) {
     client, err := mongo.Connect(context.Background(), options.Client().ApplyURI(uri))
     if err != nil {
@@ -39,27 +42,30 @@ func NewSessionStore(uri, dbName string) (*SessionStore, error) {
 
     collection := client.Database(dbName).Collection("sessions")
 
-    // Create unique index on lookup_hash for fast lookups
+    // Create indexes
     lookupIndex := mongo.IndexModel{
         Keys:    bson.D{{Key: "lookup_hash", Value: 1}},
         Options: options.Index().SetUnique(true),
     }
 
-    // Create index on user_id for listing sessions
     userIndex := mongo.IndexModel{
         Keys: bson.D{{Key: "user_id", Value: 1}},
     }
 
-    // Create TTL index to auto-delete expired sessions
     ttlIndex := mongo.IndexModel{
         Keys:    bson.D{{Key: "expires_at", Value: 1}},
         Options: options.Index().SetExpireAfterSeconds(0),
+    }
+
+    lastSeenIndex := mongo.IndexModel{
+        Keys: bson.D{{Key: "last_seen_at", Value: -1}},
     }
 
     _, err = collection.Indexes().CreateMany(context.Background(), []mongo.IndexModel{
         lookupIndex,
         userIndex,
         ttlIndex,
+        lastSeenIndex,
     })
     if err != nil {
         return nil, fmt.Errorf("failed to create indexes: %w", err)
@@ -68,15 +74,26 @@ func NewSessionStore(uri, dbName string) (*SessionStore, error) {
     return &SessionStore{collection: collection}, nil
 }
 
-// Create stores a new session with hashed tokens
-func (s *SessionStore) Create(ctx context.Context, userID, refreshTokenHash, lookupHash string) (*core.Session, error) {
+// Create stores a new session with device info
+func (s *SessionStore) Create(ctx context.Context, userID, refreshTokenHash, lookupHash string, device *core.DeviceInfo, ipAddress string) (*core.Session, error) {
+    now := time.Now()
+    
     session := mongoSession{
-        ID:           fmt.Sprintf("sess_%d", time.Now().UnixNano()),
+        ID:           fmt.Sprintf("sess_%d", now.UnixNano()),
         UserID:       userID,
         RefreshToken: refreshTokenHash,
         LookupHash:   lookupHash,
-        CreatedAt:    time.Now(),
-        ExpiresAt:    time.Now().Add(7 * 24 * time.Hour),
+        CreatedAt:    now,
+        ExpiresAt:    now.Add(7 * 24 * time.Hour),
+        LastSeenAt:   now,
+        IPAddress:    ipAddress,
+    }
+
+    if device != nil {
+        session.DeviceName = device.DeviceName
+        session.DeviceType = device.DeviceType
+        session.Browser = device.Browser
+        session.OS = device.OS
     }
 
     _, err := s.collection.InsertOne(ctx, session)
@@ -94,6 +111,12 @@ func (s *SessionStore) Create(ctx context.Context, userID, refreshTokenHash, loo
         LookupHash:   session.LookupHash,
         CreatedAt:    session.CreatedAt,
         ExpiresAt:    session.ExpiresAt,
+        LastSeenAt:   session.LastSeenAt,
+        IPAddress:    session.IPAddress,
+        DeviceName:   session.DeviceName,
+        DeviceType:   session.DeviceType,
+        Browser:      session.Browser,
+        OS:           session.OS,
     }, nil
 }
 
@@ -119,7 +142,31 @@ func (s *SessionStore) GetByRefreshToken(ctx context.Context, lookupHash string)
         LookupHash:   session.LookupHash,
         CreatedAt:    session.CreatedAt,
         ExpiresAt:    session.ExpiresAt,
+        LastSeenAt:   session.LastSeenAt,
+        IPAddress:    session.IPAddress,
+        DeviceName:   session.DeviceName,
+        DeviceType:   session.DeviceType,
+        Browser:      session.Browser,
+        OS:           session.OS,
     }, nil
+}
+
+// UpdateLastSeen updates the last seen time for a session
+func (s *SessionStore) UpdateLastSeen(ctx context.Context, sessionID string) error {
+    result, err := s.collection.UpdateOne(
+        ctx,
+        bson.M{"_id": sessionID},
+        bson.M{"$set": bson.M{"last_seen_at": time.Now()}},
+    )
+    if err != nil {
+        return fmt.Errorf("failed to update last seen: %w", err)
+    }
+
+    if result.MatchedCount == 0 {
+        return core.ErrSessionNotFound
+    }
+
+    return nil
 }
 
 // Revoke removes a specific session
@@ -151,7 +198,8 @@ func (s *SessionStore) ListForUser(ctx context.Context, userID string) ([]core.S
     cursor, err := s.collection.Find(ctx, bson.M{
         "user_id":    userID,
         "expires_at": bson.M{"$gt": time.Now()},
-    })
+    }, options.Find().SetSort(bson.M{"last_seen_at": -1}))
+    
     if err != nil {
         return nil, fmt.Errorf("failed to list sessions: %w", err)
     }
@@ -164,22 +212,25 @@ func (s *SessionStore) ListForUser(ctx context.Context, userID string) ([]core.S
             return nil, fmt.Errorf("failed to decode session: %w", err)
         }
 
-        // Don't expose lookup hash in list response
         sessions = append(sessions, core.Session{
             ID:           ms.ID,
             UserID:       ms.UserID,
             RefreshToken: ms.RefreshToken,
-            LookupHash:   "", // Hide lookup hash
+            LookupHash:   "",
             CreatedAt:    ms.CreatedAt,
             ExpiresAt:    ms.ExpiresAt,
+            LastSeenAt:   ms.LastSeenAt,
+            IPAddress:    ms.IPAddress,
+            DeviceName:   ms.DeviceName,
+            DeviceType:   ms.DeviceType,
+            Browser:      ms.Browser,
+            OS:           ms.OS,
         })
     }
 
     return sessions, nil
 }
 
-// Close closes the MongoDB connection
 func (s *SessionStore) Close() error {
-    // Client is managed elsewhere
     return nil
 }

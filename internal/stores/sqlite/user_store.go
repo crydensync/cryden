@@ -1,73 +1,3 @@
-//package sqlite
-/*
-import (
-	"context"
-	"database/sql"
-	"fmt"
-	"time"
-
-	"github.com/crydensync/cryden/internal/core"
-	_ "github.com/mattn/go-sqlite3"
-)
-
-type UserStore struct {
-	db *sql.DB
-}
-
-func NewUserStore(dbPath string) (*UserStore, error) {
-	db, err := sql.Open("sqlite3", dbPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open database: %w", err)
-	}
-
-	if err := db.Ping(); err != nil {
-		return nil, fmt.Errorf("failed to ping database: %w", err)
-	}
-
-	if err := autoMigrate(db); err != nil {
-		return nil, fmt.Errorf("failed to migrate: %w", err)
-	}
-
-	return &UserStore{db: db}, nil
-}
-
-func autoMigrate(db *sql.DB) error {
-	usersTable := `
-        CREATE TABLE IF NOT EXISTS users (
-            id TEXT PRIMARY KEY,
-            email TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            created_at TIMESTAMP NOT NULL,
-            updated_at TIMESTAMP NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
-    `
-
-	if _, err := db.Exec(usersTable); err != nil {
-		return fmt.Errorf("failed to create users table: %w", err)
-	}
-
-	sessionsTable := `
-        CREATE TABLE IF NOT EXISTS sessions (
-            id TEXT PRIMARY KEY,
-            user_id TEXT NOT NULL,
-            refresh_token TEXT UNIQUE NOT NULL,
-            created_at TIMESTAMP NOT NULL,
-            expires_at TIMESTAMP NOT NULL,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        );
-        CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
-        CREATE INDEX IF NOT EXISTS idx_sessions_refresh_token ON sessions(refresh_token);
-    `
-
-	if _, err := db.Exec(sessionsTable); err != nil {
-		return fmt.Errorf("failed to create sessions table: %w", err)
-	}
-
-	return nil
-}
-*/
-
 package sqlite
 
 import (
@@ -103,6 +33,7 @@ func NewUserStore(dbPath string) (*UserStore, error) {
     return &UserStore{db: db}, nil
 }
 
+
 func autoMigrate(db *sql.DB) error {
     // Users table
     usersTable := `
@@ -120,7 +51,7 @@ func autoMigrate(db *sql.DB) error {
         return fmt.Errorf("failed to create users table: %w", err)
     }
 
-    // Sessions table with lookup_hash
+    // Sessions table
     sessionsTable := `
     CREATE TABLE IF NOT EXISTS sessions (
         id TEXT PRIMARY KEY,
@@ -129,10 +60,17 @@ func autoMigrate(db *sql.DB) error {
         lookup_hash TEXT UNIQUE NOT NULL,
         created_at TIMESTAMP NOT NULL,
         expires_at TIMESTAMP NOT NULL,
+        last_seen_at TIMESTAMP NOT NULL,
+        ip_address TEXT,
+        device_name TEXT,
+        device_type TEXT,
+        browser TEXT,
+        os TEXT,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_sessions_lookup ON sessions(lookup_hash);
     CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
     `
 
     if _, err := db.Exec(sessionsTable); err != nil {
