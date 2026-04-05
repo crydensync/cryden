@@ -10,31 +10,42 @@ import (
     _ "github.com/lib/pq"
 )
 
-// SessionStore implements core.SessionStore with PostgreSQL
 type SessionStore struct {
     db *sql.DB
 }
 
-// NewSessionStore creates a new PostgreSQL session store
 func NewSessionStore(db *sql.DB) *SessionStore {
     return &SessionStore{db: db}
 }
 
-// Create stores a new session with hashed tokens
-func (s *SessionStore) Create(ctx context.Context, userID, refreshTokenHash, lookupHash string) (*core.Session, error) {
+// Create stores a new session with device info
+func (s *SessionStore) Create(ctx context.Context, userID, refreshTokenHash, lookupHash string, device *core.DeviceInfo, ipAddress string) (*core.Session, error) {
     query := `
-    INSERT INTO sessions (id, user_id, refresh_token, lookup_hash, created_at, expires_at)
-    VALUES ($1, $2, $3, $4, $5, $6)
-    RETURNING id, user_id, refresh_token, lookup_hash, created_at, expires_at
+    INSERT INTO sessions (id, user_id, refresh_token, lookup_hash, created_at, expires_at, last_seen_at, ip_address, device_name, device_type, browser, os)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+    RETURNING id, user_id, refresh_token, lookup_hash, created_at, expires_at, last_seen_at, ip_address, device_name, device_type, browser, os
     `
 
     id := fmt.Sprintf("sess_%d", time.Now().UnixNano())
     now := time.Now()
     expiresAt := now.Add(7 * 24 * time.Hour)
+    
+    deviceName := ""
+    deviceType := ""
+    browser := ""
+    os := ""
+    
+    if device != nil {
+        deviceName = device.DeviceName
+        deviceType = device.DeviceType
+        browser = device.Browser
+        os = device.OS
+    }
 
     var session core.Session
     err := s.db.QueryRowContext(ctx, query,
-        id, userID, refreshTokenHash, lookupHash, now, expiresAt,
+        id, userID, refreshTokenHash, lookupHash, now, expiresAt, now, ipAddress,
+        deviceName, deviceType, browser, os,
     ).Scan(
         &session.ID,
         &session.UserID,
@@ -42,13 +53,15 @@ func (s *SessionStore) Create(ctx context.Context, userID, refreshTokenHash, loo
         &session.LookupHash,
         &session.CreatedAt,
         &session.ExpiresAt,
+        &session.LastSeenAt,
+        &session.IPAddress,
+        &session.DeviceName,
+        &session.DeviceType,
+        &session.Browser,
+        &session.OS,
     )
 
     if err != nil {
-        // Check for unique violation on lookup_hash
-        if err.Error() == `pq: duplicate key value violates unique constraint "sessions_lookup_hash_key"` {
-            return nil, fmt.Errorf("lookup hash already exists: %w", err)
-        }
         return nil, fmt.Errorf("failed to create session: %w", err)
     }
 
@@ -58,7 +71,7 @@ func (s *SessionStore) Create(ctx context.Context, userID, refreshTokenHash, loo
 // GetByRefreshToken finds session using lookup hash
 func (s *SessionStore) GetByRefreshToken(ctx context.Context, lookupHash string) (*core.Session, error) {
     query := `
-    SELECT id, user_id, refresh_token, lookup_hash, created_at, expires_at
+    SELECT id, user_id, refresh_token, lookup_hash, created_at, expires_at, last_seen_at, ip_address, device_name, device_type, browser, os
     FROM sessions
     WHERE lookup_hash = $1 AND expires_at > $2
     `
@@ -71,6 +84,12 @@ func (s *SessionStore) GetByRefreshToken(ctx context.Context, lookupHash string)
         &session.LookupHash,
         &session.CreatedAt,
         &session.ExpiresAt,
+        &session.LastSeenAt,
+        &session.IPAddress,
+        &session.DeviceName,
+        &session.DeviceType,
+        &session.Browser,
+        &session.OS,
     )
 
     if err == sql.ErrNoRows {
@@ -81,6 +100,23 @@ func (s *SessionStore) GetByRefreshToken(ctx context.Context, lookupHash string)
     }
 
     return &session, nil
+}
+
+// UpdateLastSeen updates the last seen time for a session
+func (s *SessionStore) UpdateLastSeen(ctx context.Context, sessionID string) error {
+    query := `UPDATE sessions SET last_seen_at = $1 WHERE id = $2`
+
+    result, err := s.db.ExecContext(ctx, query, time.Now(), sessionID)
+    if err != nil {
+        return fmt.Errorf("failed to update last seen: %w", err)
+    }
+
+    rows, _ := result.RowsAffected()
+    if rows == 0 {
+        return core.ErrSessionNotFound
+    }
+
+    return nil
 }
 
 // Revoke removes a specific session
@@ -115,10 +151,10 @@ func (s *SessionStore) RevokeAllForUser(ctx context.Context, userID string) erro
 // ListForUser returns all active sessions for a user
 func (s *SessionStore) ListForUser(ctx context.Context, userID string) ([]core.Session, error) {
     query := `
-    SELECT id, user_id, refresh_token, created_at, expires_at
+    SELECT id, user_id, refresh_token, created_at, expires_at, last_seen_at, ip_address, device_name, device_type, browser, os
     FROM sessions
     WHERE user_id = $1 AND expires_at > $2
-    ORDER BY created_at DESC
+    ORDER BY last_seen_at DESC
     `
 
     rows, err := s.db.QueryContext(ctx, query, userID, time.Now())
@@ -136,21 +172,19 @@ func (s *SessionStore) ListForUser(ctx context.Context, userID string) ([]core.S
             &session.RefreshToken,
             &session.CreatedAt,
             &session.ExpiresAt,
+            &session.LastSeenAt,
+            &session.IPAddress,
+            &session.DeviceName,
+            &session.DeviceType,
+            &session.Browser,
+            &session.OS,
         )
         if err != nil {
             return nil, fmt.Errorf("failed to scan session: %w", err)
         }
-        // Don't expose lookup hash in list response
         session.LookupHash = ""
         sessions = append(sessions, session)
     }
 
     return sessions, nil
-}
-
-func (s *SessionStore) Close() error {
-    if s.db != nil {
-        return s.db.Close()
-    }
-    return nil
 }

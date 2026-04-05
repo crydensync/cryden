@@ -32,41 +32,49 @@ func NewUserStore(connStr string) (*UserStore, error) {
 }
 
 func autoMigrate(db *sql.DB) error {
-	usersTable := `
-        CREATE TABLE IF NOT EXISTS users (
-            id TEXT PRIMARY KEY,
-            email TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            created_at TIMESTAMP NOT NULL,
-            updated_at TIMESTAMP NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+    // Users table
+    usersTable := `
+    CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        email TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        created_at TIMESTAMP NOT NULL,
+        updated_at TIMESTAMP NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
     `
 
-	if _, err := db.Exec(usersTable); err != nil {
-		return fmt.Errorf("failed to create users table: %w", err)
-	}
+    if _, err := db.Exec(usersTable); err != nil {
+        return fmt.Errorf("failed to create users table: %w", err)
+    }
 
-	sessionsTable := `
-        CREATE TABLE IF NOT EXISTS sessions (
-            id TEXT PRIMARY KEY,
-            user_id TEXT NOT NULL,
-            refresh_token TEXT UNIQUE NOT NULL,
-            lookup_hash TEXT UNIQUE NOT NULL,
-            created_at TIMESTAMP NOT NULL,
-            expires_at TIMESTAMP NOT NULL,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        );
-        CREATE INDEX IF NOT EXISTS idx_sessions_lookup ON sessions(lookup_hash);
-        CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
-        CREATE INDEX IF NOT EXISTS idx_sessions_refresh_token ON sessions(refresh_token);
+    // Sessions table
+    sessionsTable := `
+    CREATE TABLE IF NOT EXISTS sessions (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        refresh_token TEXT NOT NULL,
+        lookup_hash TEXT UNIQUE NOT NULL,
+        created_at TIMESTAMP NOT NULL,
+        expires_at TIMESTAMP NOT NULL,
+        last_seen_at TIMESTAMP NOT NULL,
+        ip_address TEXT,
+        device_name TEXT,
+        device_type TEXT,
+        browser TEXT,
+        os TEXT,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_sessions_lookup ON sessions(lookup_hash);
+    CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
     `
 
-	if _, err := db.Exec(sessionsTable); err != nil {
-		return fmt.Errorf("failed to create sessions table: %w", err)
-	}
+    if _, err := db.Exec(sessionsTable); err != nil {
+        return fmt.Errorf("failed to create sessions table: %w", err)
+    }
 
-	return nil
+    return nil
 }
 
 func (s *UserStore) Create(ctx context.Context, email, passwordHash string) (*core.User, error) {
@@ -177,12 +185,6 @@ func (s *UserStore) Delete(ctx context.Context, id string) error {
 
 	return nil
 }
-
-/*
-func (s *UserStore) Close() error {
-	return s.db.Close()
-}
-*/
 
 func (s *UserStore) Close() error {
     if s.db != nil {
