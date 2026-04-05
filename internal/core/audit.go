@@ -10,8 +10,6 @@ import (
     "time"
 )
 
-// ==================== Types ====================
-
 // AuditAction represents what happened
 type AuditAction string
 
@@ -46,8 +44,6 @@ type AuditLogger interface {
     Close() error
 }
 
-// ==================== Console Logger ====================
-
 // ConsoleAuditLogger prints to the console
 type ConsoleAuditLogger struct{}
 
@@ -80,8 +76,6 @@ func (l *ConsoleAuditLogger) Close() error {
     return nil
 }
 
-// ==================== Noop Logger ====================
-
 // NoopAuditLogger does nothing (for testing)
 type NoopAuditLogger struct{}
 
@@ -99,8 +93,6 @@ func (l *NoopAuditLogger) Log(ctx context.Context, entry AuditEntry) error {
 func (l *NoopAuditLogger) Close() error {
     return nil
 }
-
-// ==================== File Logger ====================
 
 // FileAuditLogger writes audit logs to a file in JSON format
 type FileAuditLogger struct {
