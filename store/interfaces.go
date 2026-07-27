@@ -1,43 +1,43 @@
 package store
 
 import (
-        "context"
-        "time"
+	"context"
+	"time"
 )
 
 // User is the domain representation of a user record.
 // Storage implementations map their own row/document types to/from this.
 type User struct {
-        ID           string
-        Email        string
-        PasswordHash string
-        CreatedAt    time.Time
-        UpdatedAt    time.Time
+	ID           string
+	Email        string
+	PasswordHash string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 // UserStore defines persistence operations for users.
 // v2 ships one implementation: store/postgres.PostgresUserStore.
 type UserStore interface {
-        Create(ctx context.Context, user User) error
-        GetByEmail(ctx context.Context, email string) (User, error)
-        GetByID(ctx context.Context, id string) (User, error)
-        UpdateEmail(ctx context.Context, id string, newEmail string) error
-        UpdatePasswordHash(ctx context.Context, id string, newHash string) error
-        Delete(ctx context.Context, id string) error
+	Create(ctx context.Context, user User) error
+	GetByEmail(ctx context.Context, email string) (User, error)
+	GetByID(ctx context.Context, id string) (User, error)
+	UpdateEmail(ctx context.Context, id string, newEmail string) error
+	UpdatePasswordHash(ctx context.Context, id string, newHash string) error
+	Delete(ctx context.Context, id string) error
 }
 
 // Session is the domain representation of a refresh-token-backed session.
 // TokenHash is the SHA-256 hash of the raw refresh token — the raw token
 // is never persisted.
 type Session struct {
-	ID         string
-	FamilyID   string
-	UserID     string
-	TokenHash  string
-	IP         string
-	UserAgent  string
-	CreatedAt  time.Time
-	RevokedAt  *time.Time
+	ID        string
+	FamilyID  string
+	UserID    string
+	TokenHash string
+	IP        string
+	UserAgent string
+	CreatedAt time.Time
+	RevokedAt *time.Time
 }
 
 // SessionStore defines persistence operations for sessions and refresh
@@ -64,14 +64,14 @@ type SessionStore interface {
 type AuditEventType string
 
 const (
-	EventSignupSuccess       AuditEventType = "signup_success"
-	EventLoginSuccess        AuditEventType = "login_success"
-	EventLoginFailed         AuditEventType = "login_failed"
-	EventLogout              AuditEventType = "logout"
-	EventLogoutAll           AuditEventType = "logout_all"
-	EventTokenRotated        AuditEventType = "token_rotated"
-	EventTokenReuseDetected  AuditEventType = "token_reuse_detected"
-	EventSessionRevoked      AuditEventType = "session_revoked"
+	EventSignupSuccess      AuditEventType = "signup_success"
+	EventLoginSuccess       AuditEventType = "login_success"
+	EventLoginFailed        AuditEventType = "login_failed"
+	EventLogout             AuditEventType = "logout"
+	EventLogoutAll          AuditEventType = "logout_all"
+	EventTokenRotated       AuditEventType = "token_rotated"
+	EventTokenReuseDetected AuditEventType = "token_reuse_detected"
+	EventSessionRevoked     AuditEventType = "session_revoked"
 )
 
 // AuditEvent is a single security-relevant, queryable record.
