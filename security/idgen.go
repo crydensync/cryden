@@ -6,7 +6,7 @@ import "github.com/google/uuid"
 // and session families. v2 ships one implementation: UUIDv7Generator.
 // UUIDv7 is time-ordered (sortable, index-friendly) without leaking
 // a predictable sequence the way time.Now().UnixNano() would.
-type IDGenrator interface {
+type IDGenerator interface {
 	New() (string, error)
 }
 
