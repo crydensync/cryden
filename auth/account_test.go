@@ -18,7 +18,7 @@ func TestChangePassword_Success(t *testing.T) {
 	ctx := context.Background()
 
 	hash, _ := hasher.Hash("old-password")
-	users.Create(ctx, storeUser("user-1", "alice@example.com", hash))
+	users.Create(ctx, storeUser("user-1", "proguy@example.com", hash))
 	sessions.Create(ctx, store.Session{ID: "s1", FamilyID: "s1", UserID: "user-1"})
 
 	err := ChangePassword(ctx, users, sessions, hasher, audit, log, "user-1", "old-password", "new-password")
@@ -47,7 +47,7 @@ func TestChangePassword_RejectsWrongCurrentPassword(t *testing.T) {
 	ctx := context.Background()
 
 	hash, _ := hasher.Hash("old-password")
-	users.Create(ctx, storeUser("user-1", "alice@example.com", hash))
+	users.Create(ctx, storeUser("user-1", "proguy@example.com", hash))
 
 	err := ChangePassword(ctx, users, sessions, hasher, audit, log, "user-1", "totally-wrong", "new-password")
 	if err != ErrInvalidCredentials {
@@ -70,7 +70,7 @@ func TestDeleteAccount_Success(t *testing.T) {
 	ctx := context.Background()
 
 	hash, _ := hasher.Hash("correct-password")
-	users.Create(ctx, storeUser("user-1", "alice@example.com", hash))
+	users.Create(ctx, storeUser("user-1", "proguy@example.com", hash))
 
 	err := DeleteAccount(ctx, users, sessions, hasher, audit, log, "user-1", "correct-password")
 	if err != nil {
@@ -91,7 +91,7 @@ func TestDeleteAccount_RejectsWrongPassword(t *testing.T) {
 	ctx := context.Background()
 
 	hash, _ := hasher.Hash("correct-password")
-	users.Create(ctx, storeUser("user-1", "alice@example.com", hash))
+	users.Create(ctx, storeUser("user-1", "proguy@example.com", hash))
 
 	err := DeleteAccount(ctx, users, sessions, hasher, audit, log, "user-1", "wrong-password")
 	if err != ErrInvalidCredentials {

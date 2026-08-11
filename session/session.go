@@ -43,8 +43,8 @@ func Revoke(
 	}
 
 	if err := audit.Record(ctx, store.AuditEvent{
-		Type:   store.EventSessionRevoked,
-		UserID: userID,
+		Type:     store.EventSessionRevoked,
+		UserID:   userID,
 		Metadata: map[string]string{"session_id": sessionID},
 	}); err != nil {
 		log.Error("session revoke: audit record failed", map[string]string{"error": err.Error(), "user_id": userID})

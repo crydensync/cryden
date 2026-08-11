@@ -29,12 +29,12 @@ func main() {
 	check("engine construction", err)
 
 	// SignUp
-	user, err := cryden.SignUp(ctx, engine, "alice@example.com", "SecurePass123!", "1.2.3.4")
+	user, err := cryden.SignUp(ctx, engine, "proguy@example.com", "Pass@2026", "1.2.3.4")
 	check("signup", err)
 	fmt.Printf("     user id: %s\n", user.ID)
 
 	// SignUp duplicate should fail
-	_, err = cryden.SignUp(ctx, engine, "alice@example.com", "SecurePass123!", "1.2.3.4")
+	_, err = cryden.SignUp(ctx, engine, "proguy@example.com", "Pass@2026", "1.2.3.4")
 	if err == nil {
 		fmt.Println("FAIL duplicate signup: expected error, got nil")
 		os.Exit(1)
@@ -42,12 +42,12 @@ func main() {
 	fmt.Println("OK   duplicate signup correctly rejected")
 
 	// Login
-	tokens, err := cryden.Login(ctx, engine, "alice@example.com", "SecurePass123!", "1.2.3.4", "test-agent")
+	tokens, err := cryden.Login(ctx, engine, "proguy@example.com", "Pass@2026", "1.2.3.4", "test-agent")
 	check("login", err)
 	fmt.Printf("     access token len: %d, refresh token len: %d\n", len(tokens.AccessToken), len(tokens.RefreshToken))
 
 	// Login wrong password should fail generically
-	_, err = cryden.Login(ctx, engine, "alice@example.com", "WrongPassword", "1.2.3.4", "test-agent")
+	_, err = cryden.Login(ctx, engine, "proguy@example.com", "WrongPassword", "1.2.3.4", "test-agent")
 	if err == nil {
 		fmt.Println("FAIL wrong password: expected error, got nil")
 		os.Exit(1)
@@ -94,7 +94,7 @@ func main() {
 	fmt.Printf("     active sessions: %d (expected 0)\n", len(sessions))
 
 	// Fresh login, then logout
-	tokens2, err := cryden.Login(ctx, engine, "alice@example.com", "SecurePass123!", "1.2.3.4", "test-agent")
+	tokens2, err := cryden.Login(ctx, engine, "proguy@example.com", "Pass@2026", "1.2.3.4", "test-agent")
 	check("second login", err)
 
 	sessionsBeforeLogout, err := cryden.ListSessions(ctx, engine, user.ID)

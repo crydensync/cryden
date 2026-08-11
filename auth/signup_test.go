@@ -24,7 +24,7 @@ func TestSignUp_Success(t *testing.T) {
 	users, audit, log, hasher, ids, limiter := newTestDeps()
 	ctx := context.Background()
 
-	user, err := SignUp(ctx, users, hasher, ids, limiter, audit, log, "alice@example.com", "pw", "1.2.3.4")
+	user, err := SignUp(ctx, users, hasher, ids, limiter, audit, log, "proguy@example.com", "pw", "1.2.3.4")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -40,12 +40,12 @@ func TestSignUp_DuplicateEmailRejected(t *testing.T) {
 	users, audit, log, hasher, ids, limiter := newTestDeps()
 	ctx := context.Background()
 
-	_, err := SignUp(ctx, users, hasher, ids, limiter, audit, log, "alice@example.com", "pw", "1.2.3.4")
+	_, err := SignUp(ctx, users, hasher, ids, limiter, audit, log, "proguy@example.com", "pw", "1.2.3.4")
 	if err != nil {
 		t.Fatalf("unexpected error on first signup: %v", err)
 	}
 
-	_, err = SignUp(ctx, users, hasher, ids, limiter, audit, log, "alice@example.com", "different-pw", "1.2.3.4")
+	_, err = SignUp(ctx, users, hasher, ids, limiter, audit, log, "proguy@example.com", "different-pw", "1.2.3.4")
 	if err != ErrUserExists {
 		t.Errorf("expected ErrUserExists, got %v", err)
 	}

@@ -29,10 +29,10 @@ func TestLogin_Success(t *testing.T) {
 	ctx := context.Background()
 
 	hash, _ := hasher.Hash("correct-password")
-	users.Create(ctx, storeUser("user-1", "alice@example.com", hash))
+	users.Create(ctx, storeUser("user-1", "proguy@example.com", hash))
 
 	tokens, err := Login(ctx, users, sessions, hasher, ids, refreshGen, jwtIssuer, limiter, audit, log,
-		"alice@example.com", "correct-password", "1.2.3.4", "test-agent", 5, time.Minute)
+		"proguy@example.com", "correct-password", "1.2.3.4", "test-agent", 5, time.Minute)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -47,10 +47,10 @@ func TestLogin_WrongPasswordRejected(t *testing.T) {
 	ctx := context.Background()
 
 	hash, _ := hasher.Hash("correct-password")
-	users.Create(ctx, storeUser("user-1", "alice@example.com", hash))
+	users.Create(ctx, storeUser("user-1", "proguy@example.com", hash))
 
 	_, err := Login(ctx, users, sessions, hasher, ids, refreshGen, jwtIssuer, limiter, audit, log,
-		"alice@example.com", "wrong-password", "1.2.3.4", "test-agent", 5, time.Minute)
+		"proguy@example.com", "wrong-password", "1.2.3.4", "test-agent", 5, time.Minute)
 	if err != ErrInvalidCredentials {
 		t.Errorf("expected ErrInvalidCredentials, got %v", err)
 	}

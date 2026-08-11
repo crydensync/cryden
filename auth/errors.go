@@ -3,7 +3,7 @@ package auth
 import "errors"
 
 var (
-	ErrUserExists         = errors.New("auth: user with this email already exists")
+	ErrUserExists = errors.New("auth: user with this email already exists")
 	// ErrInvalidCredentials is returned for both "no such user" and
 	// "wrong password" — never differentiate in the returned error,
 	// only in the audit log's metadata. Differentiating in the error
