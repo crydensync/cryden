@@ -1,224 +1,125 @@
-// Package cryden is the main entry point for the CrydennSync authentication engine. 
+// Package cryden is an embeddable, framework-agnostic authentication engine.
+// Import this package only — internal packages (auth, token,
+// store, security, session, logger) are implementation detail.
 package cryden
 
 import (
-        "context"
-				"database/sql"
-				"fmt"
+	"context"
+	"errors"
 
-        "github.com/crydensync/cryden/internal/core"
-        "github.com/crydensync/cryden/internal/stores/memory"
-        "github.com/crydensync/cryden/internal/stores/sqlite"
-				"github.com/crydensync/cryden/internal/stores/mongodb"
-				"github.com/crydensync/cryden/internal/stores/postgres"
+	"github.com/crydensync/cryden/v2/auth"
+	"github.com/crydensync/cryden/v2/session"
+	"github.com/crydensync/cryden/v2/store"
+	"github.com/crydensync/cryden/v2/token"
 )
 
-// Engine is the main authentication engine.
-type Engine = core.Engine
+// Tokens is the access/refresh token pair returned by Login and
+// RefreshToken.
+type Tokens = auth.Tokens
 
-// New creates an in-memory engine (perfect for testing)
-func New() *Engine {
-        userStore := memory.NewUserStore()
-        sessionStore := memory.NewSessionStore()
-        return core.New(userStore, sessionStore)
+// SignUp creates a new user. callerIP is required — used only for
+// rate limiting and audit metadata, never inferred by the engine.
+func SignUp(ctx context.Context, e *Engine, email, password, callerIP string) (store.User, error) {
+	return auth.SignUp(ctx, e.users, e.hasher, e.ids, e.rateLimiter, e.audit, e.log, email, password, callerIP)
 }
 
-// WithSQLite creates an engine with persistent SQLite storage
-func WithSQLite(dbPath string) (*Engine, error) {
-    // Create user store (which creates/migrates DB)
-    userStore, err := sqlite.NewUserStore(dbPath)
-    if err != nil {
-        return nil, err
-    }
-
-    // Get the DB connection from user store
-    // You'll need to add this method to UserStore
-    type dbGetter interface {
-        GetDB() *sql.DB
-    }
-    getter, ok := userStore.(dbGetter)
-    if !ok {
-        return nil, fmt.Errorf("user store does not expose DB connection")
-    }
-    db := getter.GetDB()
-
-    // Create session store with same DB
-    sessionStore := sqlite.NewSessionStore(db)
-
-    return core.New(userStore, sessionStore), nil
+// Login authenticates a user and issues a new session. callerIP and
+// userAgent are required, caller-supplied.
+func Login(ctx context.Context, e *Engine, email, password, callerIP, userAgent string) (Tokens, error) {
+	return auth.Login(ctx, e.users, e.sessions, e.hasher, e.ids, e.refreshGen, e.jwtIssuer, e.rateLimiter, e.audit, e.log, email, password, callerIP, userAgent, e.lockoutThreshold, e.lockoutDuration)
 }
 
-// WithMongoDB creates an engine with MongoDB storage
-func WithMongoDB(uri, dbName string) (*Engine, error) {
-    userStore, err := mongodb.NewUserStore(uri, dbName)
-    if err != nil {
-        return nil, err
-    }
-    
-    sessionStore, err := mongodb.NewSessionStore(uri, dbName)
-    if err != nil {
-        return nil, err
-    }
-    
-    return core.New(userStore, sessionStore), nil
+// ChangePassword requires the caller's current password as
+// re-confirmation, and revokes all sessions on success.
+func ChangePassword(ctx context.Context, e *Engine, userID, currentPassword, newPassword string) error {
+	return auth.ChangePassword(ctx, e.users, e.sessions, e.hasher, e.audit, e.log, userID, currentPassword, newPassword)
 }
 
-// WithPostgreSQL creates an engine with PostgreSQL storage
-func WithPostgreSQL(connStr string) (*Engine, error) {
-    userStore, err := postgres.NewUserStore(connStr)
-    if err != nil {
-        return nil, err
-    }
-    
-    // Get the DB connection from user store to reuse
-    db := userStore.GetDB() // You'll need to add this method
-    
-    sessionStore := postgres.NewSessionStore(db)
-    
-    return core.New(userStore, sessionStore), nil
+// DeleteAccount requires the caller's current password as
+// re-confirmation before this irreversible action.
+func DeleteAccount(ctx context.Context, e *Engine, userID, currentPassword string) error {
+	return auth.DeleteAccount(ctx, e.users, e.sessions, e.hasher, e.audit, e.log, userID, currentPassword)
 }
 
-// WithFileAuditLogger sets a file-based audit logger
-func WithFileAuditLogger(engine *Engine, filePath string) (*Engine, error) {
-    logger, err := core.NewFileAuditLogger(filePath)
-    if err != nil {
-        return nil, err
-    }
-    return engine.WithAuditLogger(logger), nil
+// ErrEmailChangeNotConfigured is returned by RequestEmailChange if the
+// Engine was built without Config.Verifications and Config.EmailSender set.
+var ErrEmailChangeNotConfigured = errors.New("cryden: email change requires Config.Verifications and Config.EmailSender to be set")
+
+// RequestEmailChange starts an email change — sends a verification
+// link to newEmail. The email is not actually changed until
+// ConfirmEmailChange is called with the resulting token.
+func RequestEmailChange(ctx context.Context, e *Engine, userID, newEmail string) error {
+	if e.verifications == nil || e.emailSender == nil {
+		return ErrEmailChangeNotConfigured
+	}
+	return auth.RequestEmailChange(ctx, e.users, e.verifications, e.emailSender, e.refreshGen, e.ids, e.audit, e.log, userID, newEmail)
 }
 
-// ==================== AUTHENTICATION FLOWS ====================
-
-// SignUp creates a new user account
-func SignUp(ctx context.Context, engine *Engine, email, password string) (*User, error) {
-        return engine.SignUp(ctx, email, password)
+// ConfirmEmailChange completes an email change using the token from
+// the verification link.
+func ConfirmEmailChange(ctx context.Context, e *Engine, rawToken string) error {
+	if e.verifications == nil {
+		return ErrEmailChangeNotConfigured
+	}
+	return auth.ConfirmEmailChange(ctx, e.users, e.verifications, e.audit, e.log, rawToken)
 }
 
-// Login authenticates a user and returns tokens
-func Login(ctx context.Context, engine *Engine, email, password string, userAgent, ipAddress string) (*TokenPair, *LimitResult, error) {
-    deviceInfo := core.ParseUserAgent(userAgent)
-    return engine.Login(ctx, email, password, deviceInfo, ipAddress)
+// Logout revokes a single session. Verifies ownership before revoking.
+func Logout(ctx context.Context, e *Engine, sessionID, userID string) error {
+	return auth.Logout(ctx, e.sessions, e.audit, e.log, sessionID, userID)
 }
 
-// Logout revokes the current session
-func Logout(ctx context.Context, engine *Engine, refreshToken string) error {
-        return engine.Logout(ctx, refreshToken)
+// LogoutAll revokes every session belonging to userID.
+func LogoutAll(ctx context.Context, e *Engine, userID string) error {
+	return auth.LogoutAll(ctx, e.sessions, e.audit, e.log, userID)
 }
 
-// LogoutAll revokes ALL sessions for a user
-func LogoutAll(ctx context.Context, engine *Engine, userID string) error {
-        return engine.LogoutAll(ctx, userID)
+// RefreshToken rotates a refresh token, issuing a new access/refresh
+// pair. Returns auth.ErrTokenReused (wrapping token.ErrTokenReused) if
+// reuse of an already-rotated token is detected — the entire session
+// family has already been revoked by the time this returns.
+func RefreshToken(ctx context.Context, e *Engine, rawRefreshToken string) (Tokens, error) {
+	result, err := token.Rotate(ctx, e.sessions, e.refreshGen, e.ids, rawRefreshToken)
+	if err != nil {
+		if err == token.ErrTokenReused {
+			if auditErr := e.audit.Record(ctx, store.AuditEvent{
+				Type:   store.EventTokenReuseDetected,
+				UserID: result.Session.UserID,
+			}); auditErr != nil {
+				e.log.Error("refresh: audit record failed", map[string]string{"error": auditErr.Error()})
+			}
+		}
+		return Tokens{}, err
+	}
+
+	accessToken, err := e.jwtIssuer.Issue(result.Session.UserID)
+	if err != nil {
+		return Tokens{}, err
+	}
+
+	if auditErr := e.audit.Record(ctx, store.AuditEvent{
+		Type:   store.EventTokenRotated,
+		UserID: result.Session.UserID,
+	}); auditErr != nil {
+		e.log.Error("refresh: audit record failed", map[string]string{"error": auditErr.Error()})
+	}
+
+	return Tokens{AccessToken: accessToken, RefreshToken: result.RawToken}, nil
 }
 
-// ChangePassword updates user's password and logs out all devices
-func ChangePassword(ctx context.Context, engine *Engine, userID, oldPassword, newPassword string) error {
-        return engine.ChangePassword(ctx, userID, oldPassword, newPassword)
+// VerifyToken validates an access token and returns the embedded
+// user ID.
+func VerifyToken(e *Engine, accessToken string) (string, error) {
+	return e.jwtIssuer.Verify(accessToken)
 }
 
-// ChangeEmail updates user's email
-func ChangeEmail(ctx context.Context, engine *Engine, userID, newEmail string) error {
-        return engine.ChangeEmail(ctx, userID, newEmail)
+// ListSessions returns all active sessions for a user.
+func ListSessions(ctx context.Context, e *Engine, userID string) ([]store.Session, error) {
+	return session.List(ctx, e.sessions, userID)
 }
 
-// DeleteAccount removes user and all sessions
-func DeleteAccount(ctx context.Context, engine *Engine, userID string) error {
-        return engine.DeleteAccount(ctx, userID)
+// RevokeSession revokes a specific session. Verifies ownership before
+// revoking.
+func RevokeSession(ctx context.Context, e *Engine, sessionID, userID string) error {
+	return session.Revoke(ctx, e.sessions, e.audit, e.log, sessionID, userID)
 }
-
-// RefreshToken issues new tokens and rotates the refresh token
-func RefreshToken(ctx context.Context, engine *Engine, refreshToken string) (*TokenPair, error) {
-        return engine.RefreshToken(ctx, refreshToken)
-}
-
-// VerifyToken validates a JWT access token and returns the user ID
-func VerifyToken(engine *Engine, tokenString string) (string, error) {
-        claims, err := engine.VerifyToken(tokenString)
-        if err != nil {
-                return "", err
-        }
-        return claims.UserID, nil
-}
-
-// LoginWithDevice is a convenience method that extracts device from context
-func LoginWithDevice(ctx context.Context, engine *Engine, email, password string, userAgent, ipAddress string) (*TokenPair, *LimitResult, error) {
-    return Login(ctx, engine, email, password, userAgent, ipAddress)
-}
-
-// ==================== USER MANAGEMENT ====================
-
-// GetUser retrieves a user by ID
-func GetUser(ctx context.Context, engine *Engine, userID string) (*User, error) {
-        return engine.GetUser(ctx, userID)
-}
-
-// GetUserByEmail retrieves a user by email
-func GetUserByEmail(ctx context.Context, engine *Engine, email string) (*User, error) {
-        return engine.GetUserByEmail(ctx, email)
-}
-
-// ==================== SESSION MANAGEMENT ====================
-
-// ListSessions returns all active sessions for a user
-func ListSessions(ctx context.Context, engine *Engine, userID string) ([]Session, error) {
-        return engine.ListSessions(ctx, userID)
-}
-
-// RevokeSession manually revokes a specific session
-func RevokeSession(ctx context.Context, engine *Engine, sessionID string) error {
-        return engine.RevokeSession(ctx, sessionID)
-}
-
-// ==================== CONFIGURATION ====================
-
-// WithJWTSecret sets a custom JWT secret
-func WithJWTSecret(engine *Engine, secret string) *Engine {
-        return engine.WithJWTSecret(secret)
-}
-
-// WithRateLimiter sets a custom rate limiter
-func WithRateLimiter(engine *Engine, limiter RateLimiter) *Engine {
-        return engine.WithRateLimiter(limiter)
-}
-
-// WithAuditLogger sets a custom audit logger
-func WithAuditLogger(engine *Engine, logger AuditLogger) *Engine {
-        return engine.WithAuditLogger(logger)
-}
-
-// WithHasher sets a custom password hasher
-func WithHasher(engine *Engine, hasher Hasher) *Engine {
-        return engine.WithHasher(hasher)
-}
-
-// ==================== RE-EXPORTED TYPES ====================
-
-type User = core.User
-type Session = core.Session
-type TokenPair = core.TokenPair
-type LimitResult = core.LimitResult
-type Claims = core.Claims
-
-// Interfaces
-type UserStore = core.UserStore
-type SessionStore = core.SessionStore
-type Hasher = core.Hasher
-type RateLimiter = core.RateLimiter
-type AuditLogger = core.AuditLogger
-type AuditEntry = core.AuditEntry
-
-// ==================== RE-EXPORTED ERRORS ====================
-
-var (
-        ErrUserExists         = core.ErrUserExists
-        ErrUserNotFound       = core.ErrUserNotFound
-        ErrInvalidCredentials = core.ErrInvalidCredentials
-        ErrInvalidEmail       = core.ErrInvalidEmail
-        ErrPasswordTooShort   = core.ErrPasswordTooShort
-        ErrPasswordTooLong    = core.ErrPasswordTooLong
-        ErrPasswordNoUpper    = core.ErrPasswordNoUpper
-        ErrPasswordNoLower    = core.ErrPasswordNoLower
-        ErrPasswordNoNumber   = core.ErrPasswordNoNumber
-        ErrTooManyAttempts    = core.ErrTooManyAttempts
-        ErrInvalidToken       = core.ErrInvalidToken
-        ErrSessionNotFound    = core.ErrSessionNotFound
-)
