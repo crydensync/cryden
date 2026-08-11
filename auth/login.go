@@ -87,7 +87,6 @@ func Login(
 		log.Error("login: reset failed-attempts error", map[string]string{"error": err.Error(), "user_id": user.ID})
 	}
 
-
 	sessionID, err := ids.New()
 	if err != nil {
 		return Tokens{}, err

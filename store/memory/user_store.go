@@ -12,8 +12,8 @@ import (
 // and local experimentation only — not a supported v1 production
 // backend. The Postgres implementation is authoritative for prod.
 type UserStore struct {
-	mu    sync.Mutex
-	byID  map[string]store.User
+	mu   sync.Mutex
+	byID map[string]store.User
 }
 
 func NewUserStore() *UserStore {

@@ -62,12 +62,12 @@ func main() {
 		panic(err)
 	}
 
-	user, err := cryden.SignUp(ctx, engine, "alice@example.com", "SecurePass123!", "1.2.3.4")
+	user, err := cryden.SignUp(ctx, engine, "proguy@example.com", "Pass@2026", "1.2.3.4")
 	if err != nil {
 		panic(err)
 	}
 
-	tokens, err := cryden.Login(ctx, engine, "alice@example.com", "SecurePass123!", "1.2.3.4", "some-user-agent")
+	tokens, err := cryden.Login(ctx, engine, "proguy@example.com", "Pass@2026", "1.2.3.4", "some-user-agent")
 	if err != nil {
 		panic(err)
 	}

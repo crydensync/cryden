@@ -157,7 +157,7 @@ func TestRequestEmailChange_RejectsAlreadyTakenEmail(t *testing.T) {
 	log := testLogger{}
 	ctx := context.Background()
 
-	users.Create(ctx, storeUser("user-1", "alice@example.com", "hash"))
+	users.Create(ctx, storeUser("user-1", "proguy@example.com", "hash"))
 	users.Create(ctx, storeUser("user-2", "bob@example.com", "hash"))
 
 	err := RequestEmailChange(ctx, users, verifications, sender, tokenGen, ids, audit, log, "user-1", "bob@example.com")

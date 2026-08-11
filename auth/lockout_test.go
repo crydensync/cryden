@@ -12,12 +12,12 @@ func TestLogin_LocksAccountAfterThreshold(t *testing.T) {
 	ctx := context.Background()
 
 	hash, _ := hasher.Hash("correct-password")
-	users.Create(ctx, storeUser("user-1", "alice@example.com", hash))
+	users.Create(ctx, storeUser("user-1", "proguy@example.com", hash))
 
 	threshold := 3
 	for i := 0; i < threshold; i++ {
 		_, err := Login(ctx, users, sessions, hasher, ids, refreshGen, jwtIssuer, limiter, audit, log,
-			"alice@example.com", "wrong-password", "1.2.3.4", "test-agent", threshold, time.Minute)
+			"proguy@example.com", "wrong-password", "1.2.3.4", "test-agent", threshold, time.Minute)
 		if err != ErrInvalidCredentials {
 			t.Fatalf("attempt %d: expected ErrInvalidCredentials, got %v", i+1, err)
 		}
@@ -27,7 +27,7 @@ func TestLogin_LocksAccountAfterThreshold(t *testing.T) {
 	// rejected as locked — the lock isn't just "N more wrong guesses
 	// fail," it blocks everything including a legitimate login.
 	_, err := Login(ctx, users, sessions, hasher, ids, refreshGen, jwtIssuer, limiter, audit, log,
-		"alice@example.com", "correct-password", "1.2.3.4", "test-agent", threshold, time.Minute)
+		"proguy@example.com", "correct-password", "1.2.3.4", "test-agent", threshold, time.Minute)
 	if err != ErrAccountLocked {
 		t.Errorf("expected ErrAccountLocked, got %v", err)
 	}
@@ -39,18 +39,18 @@ func TestLogin_SuccessfulLoginResetsFailedAttempts(t *testing.T) {
 	ctx := context.Background()
 
 	hash, _ := hasher.Hash("correct-password")
-	users.Create(ctx, storeUser("user-1", "alice@example.com", hash))
+	users.Create(ctx, storeUser("user-1", "proguy@example.com", hash))
 
 	threshold := 5
 	// Two failed attempts, below threshold.
 	for i := 0; i < 2; i++ {
 		Login(ctx, users, sessions, hasher, ids, refreshGen, jwtIssuer, limiter, audit, log,
-			"alice@example.com", "wrong-password", "1.2.3.4", "test-agent", threshold, time.Minute)
+			"proguy@example.com", "wrong-password", "1.2.3.4", "test-agent", threshold, time.Minute)
 	}
 
 	// A successful login should reset the counter.
 	_, err := Login(ctx, users, sessions, hasher, ids, refreshGen, jwtIssuer, limiter, audit, log,
-		"alice@example.com", "correct-password", "1.2.3.4", "test-agent", threshold, time.Minute)
+		"proguy@example.com", "correct-password", "1.2.3.4", "test-agent", threshold, time.Minute)
 	if err != nil {
 		t.Fatalf("expected successful login, got %v", err)
 	}
@@ -67,17 +67,17 @@ func TestLogin_LockExpiresAfterDuration(t *testing.T) {
 	ctx := context.Background()
 
 	hash, _ := hasher.Hash("correct-password")
-	users.Create(ctx, storeUser("user-1", "alice@example.com", hash))
+	users.Create(ctx, storeUser("user-1", "proguy@example.com", hash))
 
 	threshold := 1
 	shortLock := 10 * time.Millisecond
 
 	Login(ctx, users, sessions, hasher, ids, refreshGen, jwtIssuer, limiter, audit, log,
-		"alice@example.com", "wrong-password", "1.2.3.4", "test-agent", threshold, shortLock)
+		"proguy@example.com", "wrong-password", "1.2.3.4", "test-agent", threshold, shortLock)
 
 	// Immediately after: locked.
 	_, err := Login(ctx, users, sessions, hasher, ids, refreshGen, jwtIssuer, limiter, audit, log,
-		"alice@example.com", "correct-password", "1.2.3.4", "test-agent", threshold, shortLock)
+		"proguy@example.com", "correct-password", "1.2.3.4", "test-agent", threshold, shortLock)
 	if err != ErrAccountLocked {
 		t.Fatalf("expected ErrAccountLocked immediately after lock, got %v", err)
 	}
@@ -86,7 +86,7 @@ func TestLogin_LockExpiresAfterDuration(t *testing.T) {
 
 	// After the lock duration passes, login should succeed again.
 	_, err = Login(ctx, users, sessions, hasher, ids, refreshGen, jwtIssuer, limiter, audit, log,
-		"alice@example.com", "correct-password", "1.2.3.4", "test-agent", threshold, shortLock)
+		"proguy@example.com", "correct-password", "1.2.3.4", "test-agent", threshold, shortLock)
 	if err != nil {
 		t.Errorf("expected login to succeed after lock expiry, got %v", err)
 	}
