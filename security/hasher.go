@@ -31,7 +31,7 @@ func NewBcryptHasher(cost int) (*BcryptHasher, error) {
 func (b *BcryptHasher) Hash(password string) (string, error) {
 	bytes, err := bcrypt.GenerateFromPassword([]byte(password), b.Cost)
 	if err != nil {
-		return "", nil
+		return "", err
 	}
 	return string(bytes), nil
 }
