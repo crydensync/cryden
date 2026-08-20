@@ -120,4 +120,16 @@ func (s *SessionStore) RotateToken(ctx context.Context, oldSessionID string, new
 	return nil
 }
 
+func (s *SessionStore) CountActive(ctx context.Context) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	count := 0
+	for _, sess := range s.byID {
+		if sess.RevokedAt == nil {
+			count++
+		}
+	}
+	return count, nil
+}
+
 var _ store.SessionStore = (*SessionStore)(nil)
