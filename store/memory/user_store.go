@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"sort"
 	"sync"
 	"time"
 
@@ -122,6 +123,32 @@ func (s *UserStore) LockAccount(ctx context.Context, id string, until time.Time)
 	u.LockedUntil = &until
 	s.byID[id] = u
 	return nil
+}
+
+func (s *UserStore) ListAll(ctx context.Context, limit, offset int) ([]store.User, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	all := make([]store.User, 0, len(s.byID))
+	for _, u := range s.byID {
+		all = append(all, u)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].CreatedAt.After(all[j].CreatedAt) })
+
+	if offset >= len(all) {
+		return []store.User{}, nil
+	}
+	end := offset + limit
+	if end > len(all) {
+		end = len(all)
+	}
+	return all[offset:end], nil
+}
+
+func (s *UserStore) Count(ctx context.Context) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.byID), nil
 }
 
 var _ store.UserStore = (*UserStore)(nil)

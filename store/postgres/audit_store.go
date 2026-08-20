@@ -8,7 +8,7 @@ import (
 	"github.com/crydensync/cryden/v2/store"
 )
 
-// AuditStore is the v2 production store.AuditStore implementation.
+// AuditStore is the v1 production store.AuditStore implementation.
 type AuditStore struct {
 	db *sql.DB
 }
@@ -69,6 +69,44 @@ func (s *AuditStore) ListByUser(ctx context.Context, userID string, limit int) (
 			return nil, err
 		}
 		e.Type = store.AuditEventType(eventType)
+		if uid.Valid {
+			e.UserID = uid.String
+		}
+		if metadata != nil {
+			if err := json.Unmarshal(metadata, &e.Metadata); err != nil {
+				return nil, err
+			}
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+func (s *AuditStore) SearchByType(ctx context.Context, eventType store.AuditEventType, limit int) ([]store.AuditEvent, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, type, user_id, ip, metadata, created_at
+		FROM audit_events
+		WHERE type = $1
+		ORDER BY created_at DESC
+		LIMIT $2
+	`, string(eventType), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []store.AuditEvent{}
+	for rows.Next() {
+		var (
+			e        store.AuditEvent
+			evType   string
+			uid      sql.NullString
+			metadata []byte
+		)
+		if err := rows.Scan(&e.ID, &evType, &uid, &e.IP, &metadata, &e.CreatedAt); err != nil {
+			return nil, err
+		}
+		e.Type = store.AuditEventType(evType)
 		if uid.Valid {
 			e.UserID = uid.String
 		}
