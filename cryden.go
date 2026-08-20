@@ -118,6 +118,33 @@ func ListSessions(ctx context.Context, e *Engine, userID string) ([]store.Sessio
 	return session.List(ctx, e.sessions, userID)
 }
 
+// GetUser looks up a user by email. Read-only, no side effects — safe
+// to expose as a public facade function, unlike ChangePassword/
+// DeleteAccount which require self-authentication. Added because
+// admin tooling had no way to do this except reaching past the public
+// facade into the store layer directly.
+func GetUser(ctx context.Context, e *Engine, email string) (store.User, error) {
+	return e.users.GetByEmail(ctx, email)
+}
+
+// ListPublicSessions is a redacted alternative to ListSessions,
+// returning store.PublicSession (no TokenHash/FamilyID) instead of
+// the full store.Session. Added alongside ListSessions, not as a
+// replacement for it — existing callers of ListSessions are
+// unaffected. Consumers building an HTTP-facing endpoint should
+// prefer this over ListSessions plus their own hand-rolled DTO.
+func ListPublicSessions(ctx context.Context, e *Engine, userID string) ([]store.PublicSession, error) {
+	sessions, err := session.List(ctx, e.sessions, userID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]store.PublicSession, 0, len(sessions))
+	for _, s := range sessions {
+		out = append(out, s.ToPublic())
+	}
+	return out, nil
+}
+
 // RevokeSession revokes a specific session. Verifies ownership before
 // revoking.
 func RevokeSession(ctx context.Context, e *Engine, sessionID, userID string) error {
