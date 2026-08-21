@@ -117,9 +117,35 @@ engine, err := cryden.New(cryden.Config{
 
 The engine never sends email itself — implement `notify.EmailSender` against whatever provider you use (SendGrid, SES, SMTP), and build the actual verification URL yourself; the engine only hands you a raw token, it has no idea what your app's domain or routes look like. Calling `RequestEmailChange` without these configured returns `cryden.ErrEmailChangeNotConfigured` rather than panicking.
 
+## OAuth (Google, GitHub, or any provider)
+
+The engine never performs an HTTP redirect and never talks to a specific provider — that's inherently HTTP-shaped work that belongs in your API layer. By the time you call into the engine, your app has already completed the provider's redirect/callback flow and confirmed the person's identity:
+
+```go
+engine, err := cryden.New(cryden.Config{
+	// ...required fields...
+	OAuth: postgres.NewOAuthStore(db), // or memory.NewOAuthStore()
+})
+
+tokens, err := cryden.LoginWithOAuth(ctx, engine, "google", externalID, email, callerIP, userAgent)
+```
+
+`LoginWithOAuth` also doubles as signup — if neither an existing link nor an existing account matches, a new user is created automatically. If the email matches an existing password-based account that isn't linked yet, it returns `*auth.ErrOAuthEmailConflict` (retrievable via `errors.As`) rather than auto-linking — auto-linking on email match alone is an account-takeover vector if a provider's email verification ever has an edge case. Resolve it by having the person log in with their password first, then call:
+
+```go
+err := cryden.LinkOAuthIdentity(ctx, engine, userID, "google", externalID, email, callerIP)
+```
+
+`userID` must come from an already-verified session — never trust an email alone to authorize a link. Calling either function without `Config.OAuth` set returns `cryden.ErrOAuthNotConfigured`.
+
+## AI-assisted admin queries (library support only)
+
+The `ai` subpackage provides the safety machinery for natural-language admin tooling — an allowlisted `QueryIntent` type, `validateIntent`, and `ExecuteQuery` — plus `store/postgres.SafeQueryStore`, a read-only query executor. This is a foundation for tools like `csax`'s CLI to build on, not a feature you call directly in application code. An LLM's output is treated as untrusted data to validate against a strict allowlist, never as SQL to execute — and the actual DB connection passed to `SafeQueryStore` must be opened with a read-only Postgres role, since that's the real safety boundary, not just the allowlist check. `ai.LLMProvider` ships zero implementations; bring your own (OpenAI, Anthropic, OpenRouter, a local model).
+
 ## What's in v2
 
 - Signup, login, logout (single device + all devices)
+- OAuth login/signup (Google, GitHub, or any provider) with explicit, non-auto-linking account collision handling — see [OAuth](#oauth-google-github-or-any-provider)
 - JWT access tokens + rotating opaque refresh tokens with theft/reuse detection
 - Session listing and revocation
 - Change password (requires current password, revokes all other sessions)
@@ -128,11 +154,13 @@ The engine never sends email itself — implement `notify.EmailSender` against w
 - Persistent, DB-backed account lockout after repeated failed login attempts — survives restarts, correct across multiple instances
 - Email verification primitives (token issue/confirm) — delivery is pluggable via the `notify.EmailSender` interface, the engine never sends email itself
 - Rate limiting, bcrypt password hashing, audit logging
+- Pagination and system-wide read facades (`ListAll`, `Count`, `CountActive`, `SearchByType`, `GetUser`, `ListPublicSessions`) for building admin tooling on top of the engine
+- `ai` subpackage — allowlisted, read-only query safety layer for AI-assisted admin tooling built on top of this engine (see [AI-assisted admin queries](#ai-assisted-admin-queries-library-support-only))
 - One storage backend: Postgres (interface-based, more can be added later)
 
 ## What's not in v2 (yet)
 
-CLI, HTTP API, and language SDKs are separate repositories that wrap this engine — this repo is the core library only. OAuth (Google/GitHub), MFA, magic links, SMS OTP, WebAuthn, SAML, and other advanced auth methods are planned for later releases.
+CLI, HTTP API, and language SDKs are separate repositories that wrap this engine — this repo is the core library only. MFA, magic links, SMS OTP, WebAuthn, SAML, and other advanced auth methods are planned for later releases.
 
 ## License
 
