@@ -64,6 +64,36 @@ func ConfirmEmailChange(ctx context.Context, e *Engine, rawToken string) error {
 	return auth.ConfirmEmailChange(ctx, e.users, e.verifications, e.audit, e.log, rawToken)
 }
 
+// ErrOAuthNotConfigured is returned by LoginWithOAuth if the Engine
+// was built without Config.OAuth set.
+var ErrOAuthNotConfigured = errors.New("cryden: oauth login requires Config.OAuth to be set")
+
+// LoginWithOAuth is called after api has already completed the
+// provider's redirect/callback flow and confirmed the person's
+// identity — the engine itself never talks to Google/GitHub or
+// performs an HTTP redirect. Returns *auth.ErrOAuthEmailConflict
+// (retrievable via errors.As) if externalID's email matches an
+// existing password-based account that isn't linked yet; the engine
+// deliberately does not auto-link in that case.
+func LoginWithOAuth(ctx context.Context, e *Engine, provider, externalID, email, callerIP, userAgent string) (Tokens, error) {
+	if e.oauth == nil {
+		return Tokens{}, ErrOAuthNotConfigured
+	}
+	return auth.LoginWithOAuth(ctx, e.users, e.oauth, e.sessions, e.ids, e.refreshGen, e.jwtIssuer, e.audit, e.log, provider, externalID, email, callerIP, userAgent)
+}
+
+// LinkOAuthIdentity attaches a confirmed external identity to an
+// already-authenticated user. userID must come from a verified
+// session/access token — this is the resolution path api should use
+// after a *auth.ErrOAuthEmailConflict, once the caller has logged in
+// with their password to prove ownership of the account.
+func LinkOAuthIdentity(ctx context.Context, e *Engine, userID, provider, externalID, email, callerIP string) error {
+	if e.oauth == nil {
+		return ErrOAuthNotConfigured
+	}
+	return auth.LinkOAuthIdentity(ctx, e.users, e.oauth, e.ids, e.audit, e.log, userID, provider, externalID, email, callerIP)
+}
+
 // Logout revokes a single session. Verifies ownership before revoking.
 func Logout(ctx context.Context, e *Engine, sessionID, userID string) error {
 	return auth.Logout(ctx, e.sessions, e.audit, e.log, sessionID, userID)
