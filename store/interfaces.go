@@ -119,6 +119,7 @@ const (
         EventEmailChangeRequested AuditEventType = "email_change_requested"
         EventEmailChanged         AuditEventType = "email_changed"
         EventAccountDeleted       AuditEventType = "account_deleted"
+        EventOAuthLinked          AuditEventType = "oauth_linked"
 )
 
 // AuditEvent is a single security-relevant, queryable record.
@@ -178,4 +179,27 @@ type VerificationStore interface {
         Create(ctx context.Context, vt VerificationToken) error
         GetByTokenHash(ctx context.Context, tokenHash string) (VerificationToken, error)
         MarkUsed(ctx context.Context, id string) error
+}
+
+// OAuthIdentity links a User to an external OAuth provider account.
+// Provider is a plain string ("google", "github") rather than an enum
+// so a new provider never requires an engine change. ExternalID is
+// the provider's own stable user ID — never the email, since a
+// provider's email on file can change and isn't a guaranteed stable
+// identifier the way their internal ID is.
+type OAuthIdentity struct {
+        ID         string
+        UserID     string
+        Provider   string
+        ExternalID string
+        Email      string
+        CreatedAt  time.Time
+}
+
+// OAuthStore defines persistence for linked OAuth identities.
+type OAuthStore interface {
+        Link(ctx context.Context, identity OAuthIdentity) error
+        GetByProviderID(ctx context.Context, provider, externalID string) (OAuthIdentity, error)
+        ListByUser(ctx context.Context, userID string) ([]OAuthIdentity, error)
+        Unlink(ctx context.Context, identityID string) error
 }
