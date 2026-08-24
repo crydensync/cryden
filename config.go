@@ -26,6 +26,9 @@ type Config struct {
 	// rather than a nil-pointer panic.
 	Verifications store.VerificationStore
 	EmailSender   notify.EmailSender
+	// OAuth is optional — only required if LoginWithOAuth is used.
+	// Left unset, LoginWithOAuth returns ErrOAuthNotConfigured.
+	OAuth store.OAuthStore
 
 	// Optional — sensible defaults applied in New() if zero-valued.
 	// These are tuning knobs, not security-critical secrets, so

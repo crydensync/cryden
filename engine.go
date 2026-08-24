@@ -19,6 +19,7 @@ type Engine struct {
 	audit         store.AuditStore
 	verifications store.VerificationStore
 	emailSender   notify.EmailSender
+	oauth         store.OAuthStore
 
 	hasher           security.Hasher
 	ids              security.IDGenerator
@@ -60,6 +61,7 @@ func New(cfg Config) (*Engine, error) {
 		audit:            cfg.Audit,
 		verifications:    cfg.Verifications,
 		emailSender:      cfg.EmailSender,
+		oauth:            cfg.OAuth,
 		hasher:           hasher,
 		ids:              security.NewUUIDv7Generator(),
 		rateLimiter:      security.NewInMemoryRateLimiter(cfg.RateLimitAttempts, cfg.RateLimitWindow),

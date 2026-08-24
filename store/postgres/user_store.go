@@ -11,7 +11,7 @@ import (
 	"github.com/crydensync/cryden/v2/store"
 )
 
-// UserStore is the v2 production store.UserStore implementation.
+// UserStore is the v1 production store.UserStore implementation.
 type UserStore struct {
 	db *sql.DB
 }
@@ -136,6 +136,39 @@ func (s *UserStore) LockAccount(ctx context.Context, id string, until time.Time)
 		return err
 	}
 	return checkRowsAffected(result)
+}
+
+func (s *UserStore) ListAll(ctx context.Context, limit, offset int) ([]store.User, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, email, password_hash, failed_attempts, locked_until, created_at, updated_at
+		FROM users
+		ORDER BY created_at DESC
+		LIMIT $1 OFFSET $2
+	`, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []store.User{}
+	for rows.Next() {
+		var u store.User
+		var lockedUntil sql.NullTime
+		if err := rows.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.FailedAttempts, &lockedUntil, &u.CreatedAt, &u.UpdatedAt); err != nil {
+			return nil, err
+		}
+		if lockedUntil.Valid {
+			u.LockedUntil = &lockedUntil.Time
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+func (s *UserStore) Count(ctx context.Context) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users`).Scan(&count)
+	return count, err
 }
 
 var _ store.UserStore = (*UserStore)(nil)
