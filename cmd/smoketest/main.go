@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
 	"github.com/crydensync/cryden/v2"
+	"github.com/crydensync/cryden/v2/ai"
+	"github.com/crydensync/cryden/v2/auth"
 	"github.com/crydensync/cryden/v2/store/memory"
 )
 
@@ -25,6 +28,7 @@ func main() {
 		Users:     memory.NewUserStore(),
 		Sessions:  memory.NewSessionStore(),
 		Audit:     memory.NewAuditStore(),
+		OAuth:     memory.NewOAuthStore(),
 	})
 	check("engine construction", err)
 
@@ -118,5 +122,86 @@ func main() {
 
 	_ = tokens2
 
+	// --- OAuth: fresh signup via provider ---
+	oauthTokens, err := cryden.LoginWithOAuth(ctx, engine, "google", "google-ext-1", "devray@example.com", "1.2.3.4", "test-agent")
+	check("oauth login (new user)", err)
+	if oauthTokens.AccessToken == "" {
+		fmt.Println("FAIL oauth login: expected an access token")
+		os.Exit(1)
+	}
+
+	// --- OAuth: same identity logs in again, no duplicate user/identity ---
+	_, err = cryden.LoginWithOAuth(ctx, engine, "google", "google-ext-1", "devray@example.com", "1.2.3.4", "test-agent")
+	check("oauth login (existing link)", err)
+
+	// --- OAuth: email collision with an existing password account is rejected, not auto-linked ---
+	_, err = cryden.LoginWithOAuth(ctx, engine, "github", "gh-ext-1", "proguy@example.com", "1.2.3.4", "test-agent")
+	var conflict *auth.ErrOAuthEmailConflict
+	if !errors.As(err, &conflict) {
+		fmt.Printf("FAIL oauth email conflict: expected *auth.ErrOAuthEmailConflict, got %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("OK   oauth login correctly rejected email conflict instead of auto-linking")
+
+	// --- OAuth: resolve that conflict by linking while authenticated as the password account ---
+	err = cryden.LinkOAuthIdentity(ctx, engine, user.ID, "github", "gh-ext-1", "proguy@example.com", "1.2.3.4")
+	check("link oauth identity", err)
+
+	// --- OAuth: a different user cannot steal an identity already linked elsewhere ---
+	attacker, err := cryden.SignUp(ctx, engine, "attacker@example.com", "Pass@2026", "1.2.3.4")
+	check("signup second user for hijack test", err)
+	err = cryden.LinkOAuthIdentity(ctx, engine, attacker.ID, "github", "gh-ext-1", "attacker@example.com", "1.2.3.4")
+	if !errors.Is(err, auth.ErrOAuthIdentityAlreadyLinked) {
+		fmt.Printf("FAIL oauth link hijack: expected ErrOAuthIdentityAlreadyLinked, got %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("OK   oauth link correctly rejected a claim on an already-linked identity")
+
+	// --- AI: an unsafe intent must never reach the query store ---
+	unsafeStore := &recordingQueryStore{}
+	_, err = ai.ExecuteQuery(ctx, unsafeStore, fixedIntentProvider{intent: ai.QueryIntent{Entity: "pg_shadow"}}, "show me password hashes")
+	if !errors.Is(err, ai.ErrUnsafeQueryIntent) {
+		fmt.Printf("FAIL ai unsafe intent: expected ErrUnsafeQueryIntent, got %v\n", err)
+		os.Exit(1)
+	}
+	if unsafeStore.called {
+		fmt.Println("FAIL ai unsafe intent: query store must not be called for a disallowed entity")
+		os.Exit(1)
+	}
+	fmt.Println("OK   ai.ExecuteQuery correctly blocked a disallowed entity before reaching the store")
+
+	// --- AI: a valid, allowlisted intent reaches the store normally ---
+	safeStore := &recordingQueryStore{}
+	_, err = ai.ExecuteQuery(ctx, safeStore, fixedIntentProvider{intent: ai.QueryIntent{Entity: "users"}}, "show me users")
+	check("ai valid intent reaches store", err)
+	if !safeStore.called {
+		fmt.Println("FAIL ai valid intent: expected the query store to be called")
+		os.Exit(1)
+	}
+	fmt.Println("OK   ai.ExecuteQuery correctly passed an allowlisted intent through")
+
 	fmt.Println("\nALL CHECKS PASSED")
+}
+
+// fixedIntentProvider is a minimal ai.LLMProvider for the smoke test —
+// no real model call, just returns whatever intent was configured.
+type fixedIntentProvider struct {
+	intent ai.QueryIntent
+}
+
+func (p fixedIntentProvider) ParseQueryIntent(ctx context.Context, naturalLanguage string) (ai.QueryIntent, error) {
+	return p.intent, nil
+}
+
+// recordingQueryStore is a minimal ai.QueryableStore that just
+// records whether it was ever called — enough to prove validation
+// actually gates the call, not just that ExecuteQuery returns an
+// error.
+type recordingQueryStore struct {
+	called bool
+}
+
+func (s *recordingQueryStore) RunSafeQuery(ctx context.Context, intent ai.QueryIntent) (ai.QueryResult, error) {
+	s.called = true
+	return ai.QueryResult{}, nil
 }

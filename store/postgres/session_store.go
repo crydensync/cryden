@@ -8,7 +8,7 @@ import (
 	"github.com/crydensync/cryden/v2/store"
 )
 
-// SessionStore is the v2 production store.SessionStore implementation.
+// SessionStore is the v1 production store.SessionStore implementation.
 type SessionStore struct {
 	db *sql.DB
 }
@@ -144,6 +144,14 @@ func (s *SessionStore) RotateToken(ctx context.Context, oldSessionID string, new
 	}
 
 	return tx.Commit()
+}
+
+func (s *SessionStore) CountActive(ctx context.Context) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM sessions WHERE revoked_at IS NULL
+	`).Scan(&count)
+	return count, err
 }
 
 var _ store.SessionStore = (*SessionStore)(nil)
