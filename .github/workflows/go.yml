@@ -1,0 +1,64 @@
+name: Go
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: cryden
+          POSTGRES_PASSWORD: cryden_test
+          POSTGRES_DB: cryden_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Verify all internal imports use the /v2 module path
+        run: |
+          if grep -rn '"github.com/crydensync/cryden"' --include="*.go" . ; then
+            echo "::error::Found a bare (non-/v2) internal import — see lines above."
+            exit 1
+          fi
+
+      - name: Build
+        run: go build -v ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Install postgresql-client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Run migrations against test Postgres
+        run: |
+          for f in store/postgres/migrations/*.up.sql; do
+            psql "$DATABASE_URL" -f "$f"
+          done
+        env:
+          DATABASE_URL: postgres://cryden:cryden_test@localhost:5432/cryden_test?sslmode=disable
+
+      - name: Test
+        run: go test -v ./...
+        env:
+          DATABASE_URL: postgres://cryden:cryden_test@localhost:5432/cryden_test?sslmode=disable
