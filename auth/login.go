@@ -49,6 +49,14 @@ func Login(
 
 	user, err := users.GetByEmail(ctx, email)
 	if err != nil {
+		// Still pay bcrypt's cost even though there's no hash to
+		// check against — hasher.Hash runs the same underlying cost
+		// function as hasher.Compare. Without this, a nonexistent-
+		// email response returns measurably faster than a wrong-
+		// password one, letting an attacker enumerate registered
+		// emails by timing alone even though the returned error is
+		// identical either way.
+		_, _ = hasher.Hash(password)
 		recordLoginFailure(ctx, audit, log, "", callerIP, "no_such_user")
 		return Tokens{}, ErrInvalidCredentials
 	}
