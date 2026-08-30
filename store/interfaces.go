@@ -120,6 +120,9 @@ const (
 	EventEmailChanged         AuditEventType = "email_changed"
 	EventAccountDeleted       AuditEventType = "account_deleted"
 	EventOAuthLinked          AuditEventType = "oauth_linked"
+	EventTOTPEnabled          AuditEventType = "totp_enabled"
+	EventTOTPDisabled         AuditEventType = "totp_disabled"
+	EventTOTPChallengeFailed  AuditEventType = "totp_challenge_failed"
 )
 
 // AuditEvent is a single security-relevant, queryable record.
@@ -202,4 +205,31 @@ type OAuthStore interface {
 	GetByProviderID(ctx context.Context, provider, externalID string) (OAuthIdentity, error)
 	ListByUser(ctx context.Context, userID string) ([]OAuthIdentity, error)
 	Unlink(ctx context.Context, identityID string) error
+}
+
+// TOTPSecret represents a user's enrolled TOTP (2FA) secret.
+// EncryptedSecret is encrypted at rest via security.Encryptor — never
+// hashed, since validating a code requires recovering the original
+// secret, unlike passwords/tokens. ConfirmedAt is nil until the user
+// proves possession with one valid code; an unconfirmed secret must
+// never gate a login (see auth.ConfirmTOTP).
+type TOTPSecret struct {
+	UserID          string
+	EncryptedSecret string
+	ConfirmedAt     *time.Time
+	CreatedAt       time.Time
+}
+
+// TOTPStore defines persistence for TOTP secrets. One secret per
+// user — re-enrolling replaces the existing row rather than creating
+// a second one, and always resets ConfirmedAt to nil, so restarting
+// enrollment can never leave a stale confirmed secret active
+// alongside a new unconfirmed one.
+type TOTPStore interface {
+	Upsert(ctx context.Context, secret TOTPSecret) error
+	GetByUserID(ctx context.Context, userID string) (TOTPSecret, error)
+	// Confirm marks the existing secret confirmed. Errors with
+	// ErrNotFound if no secret is pending for userID.
+	Confirm(ctx context.Context, userID string) error
+	Delete(ctx context.Context, userID string) error
 }
