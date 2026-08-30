@@ -37,7 +37,7 @@ func NewCryptoRandTokenGenerator(byteLength int) (*CryptoRandTokenGenerator, err
 func (g *CryptoRandTokenGenerator) New() (string, error) {
 	buf := make([]byte, g.ByteLength)
 	if _, err := rand.Read(buf); err != nil {
-		return "", nil
+		return "", err
 	}
 	return hex.EncodeToString(buf), nil
 }
