@@ -15,6 +15,12 @@ import (
 // token pair). callerIP and userAgent are required, caller-supplied —
 // never inferred inside the engine.
 //
+// totpStore and pendingIssuer are optional (nil if Config.TOTP isn't
+// set). If the account has a confirmed TOTP secret, Login does not
+// issue tokens directly — it returns *ErrTOTPRequired carrying a
+// short-lived pending token; the caller must then call
+// CompleteLoginWithTOTP with that token plus a code.
+//
 // lockoutThreshold and lockoutDuration configure account lockout: after
 // lockoutThreshold consecutive failed attempts, the account is locked
 // (persistent, DB-backed — survives restarts, correct across multiple
@@ -23,10 +29,12 @@ func Login(
 	ctx context.Context,
 	users store.UserStore,
 	sessions store.SessionStore,
+	totpStore store.TOTPStore,
 	hasher security.Hasher,
 	ids security.IDGenerator,
 	refreshGen token.TokenGenerator,
 	jwtIssuer *token.JWTIssuer,
+	pendingIssuer *token.MFAPendingIssuer,
 	limiter security.RateLimiter,
 	audit store.AuditStore,
 	log logger.Logger,
@@ -95,6 +103,43 @@ func Login(
 		log.Error("login: reset failed-attempts error", map[string]string{"error": err.Error(), "user_id": user.ID})
 	}
 
+	// Password verified. If this account has a confirmed TOTP secret,
+	// pause here instead of issuing tokens — a correct password alone
+	// is no longer sufficient to complete login.
+	if totpStore != nil {
+		secretRec, err := totpStore.GetByUserID(ctx, user.ID)
+		if err == nil && secretRec.ConfirmedAt != nil {
+			pendingToken, issueErr := pendingIssuer.Issue(user.ID)
+			if issueErr != nil {
+				return Tokens{}, issueErr
+			}
+			log.Info("login: password verified, awaiting TOTP", map[string]string{"user_id": user.ID})
+			return Tokens{}, &ErrTOTPRequired{PendingToken: pendingToken}
+		}
+	}
+
+	return finishLogin(ctx, sessions, ids, refreshGen, jwtIssuer, audit, log, user, callerIP, userAgent, "")
+}
+
+// finishLogin issues a new session (access + refresh token pair) for
+// an already-authenticated user. Shared by Login (password-only
+// accounts) and CompleteLoginWithTOTP (accounts with 2FA) so both
+// paths create sessions identically — a second factor changes how a
+// caller gets here, never what a completed login produces. mfaMethod
+// is recorded in the audit event's metadata ("" for password-only).
+func finishLogin(
+	ctx context.Context,
+	sessions store.SessionStore,
+	ids security.IDGenerator,
+	refreshGen token.TokenGenerator,
+	jwtIssuer *token.JWTIssuer,
+	audit store.AuditStore,
+	log logger.Logger,
+	user store.User,
+	callerIP string,
+	userAgent string,
+	mfaMethod string,
+) (Tokens, error) {
 	sessionID, err := ids.New()
 	if err != nil {
 		return Tokens{}, err
@@ -125,10 +170,15 @@ func Login(
 		return Tokens{}, err
 	}
 
+	var metadata map[string]string
+	if mfaMethod != "" {
+		metadata = map[string]string{"mfa": mfaMethod}
+	}
 	if err := audit.Record(ctx, store.AuditEvent{
-		Type:   store.EventLoginSuccess,
-		UserID: user.ID,
-		IP:     callerIP,
+		Type:     store.EventLoginSuccess,
+		UserID:   user.ID,
+		IP:       callerIP,
+		Metadata: metadata,
 	}); err != nil {
 		log.Error("login: audit record failed", map[string]string{"error": err.Error(), "user_id": user.ID})
 	}
