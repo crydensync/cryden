@@ -29,6 +29,25 @@ type Config struct {
 	// OAuth is optional — only required if LoginWithOAuth is used.
 	// Left unset, LoginWithOAuth returns ErrOAuthNotConfigured.
 	OAuth store.OAuthStore
+	// TOTP is optional — only required if EnrollTOTP / ConfirmTOTP /
+	// DisableTOTP / CompleteLoginWithTOTP are used. Left unset, those
+	// facade functions return ErrTOTPNotConfigured and Login never
+	// checks for a second factor. If set, EncryptionKey must also be
+	// set (validated below) — a TOTP secret is encrypted, not hashed,
+	// since the engine must recover it in plaintext to check codes.
+	TOTP store.TOTPStore
+	// EncryptionKey encrypts TOTP secrets at rest. Required only if
+	// TOTP is set. Like JWTSecret, this should be a long, random
+	// value kept out of source control — it is hashed internally to
+	// derive an AES-256 key, but that normalizes length only, it does
+	// not substitute for the input itself being high-entropy.
+	EncryptionKey string
+	// TOTPIssuerName is shown inside the user's authenticator app
+	// next to their account (e.g. "MyApp (user@example.com)").
+	// Optional — defaults to "Cryden" if TOTP is set and this is left
+	// blank, but you almost certainly want to override it with your
+	// own app's name.
+	TOTPIssuerName string
 
 	// Optional — sensible defaults applied in New() if zero-valued.
 	// These are tuning knobs, not security-critical secrets, so
@@ -56,6 +75,9 @@ func (c *Config) validate() error {
 	if c.Audit == nil {
 		return ErrMissingAuditStore
 	}
+	if c.TOTP != nil && c.EncryptionKey == "" {
+		return ErrMissingEncryptionKey
+	}
 	return nil
 }
 
@@ -80,6 +102,9 @@ func (c *Config) applyDefaults() {
 	}
 	if c.LockoutDuration == 0 {
 		c.LockoutDuration = 15 * time.Minute
+	}
+	if c.TOTP != nil && c.TOTPIssuerName == "" {
+		c.TOTPIssuerName = "Cryden"
 	}
 	if c.Logger == nil {
 		c.Logger = logger.NewConsoleJSONLogger()

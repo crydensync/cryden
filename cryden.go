@@ -24,9 +24,13 @@ func SignUp(ctx context.Context, e *Engine, email, password, callerIP string) (s
 }
 
 // Login authenticates a user and issues a new session. callerIP and
-// userAgent are required, caller-supplied.
+// userAgent are required, caller-supplied. If the account has TOTP
+// (2FA) enabled, no tokens are issued yet — Login returns
+// *auth.ErrTOTPRequired (retrievable via errors.As) carrying a
+// short-lived pending token; call CompleteLoginWithTOTP with that
+// token plus a code to finish.
 func Login(ctx context.Context, e *Engine, email, password, callerIP, userAgent string) (Tokens, error) {
-	return auth.Login(ctx, e.users, e.sessions, e.hasher, e.ids, e.refreshGen, e.jwtIssuer, e.rateLimiter, e.audit, e.log, email, password, callerIP, userAgent, e.lockoutThreshold, e.lockoutDuration)
+	return auth.Login(ctx, e.users, e.sessions, e.totp, e.hasher, e.ids, e.refreshGen, e.jwtIssuer, e.pendingIssuer, e.rateLimiter, e.audit, e.log, email, password, callerIP, userAgent, e.lockoutThreshold, e.lockoutDuration)
 }
 
 // ChangePassword requires the caller's current password as
@@ -179,4 +183,51 @@ func ListPublicSessions(ctx context.Context, e *Engine, userID string) ([]store.
 // revoking.
 func RevokeSession(ctx context.Context, e *Engine, sessionID, userID string) error {
 	return session.Revoke(ctx, e.sessions, e.audit, e.log, sessionID, userID)
+}
+
+// ErrTOTPNotConfigured is returned by every TOTP facade function
+// below if the Engine was built without Config.TOTP (and
+// Config.EncryptionKey) set.
+var ErrTOTPNotConfigured = errors.New("cryden: TOTP requires Config.TOTP and Config.EncryptionKey to be set")
+
+// EnrollTOTP begins 2FA enrollment for an already-authenticated user.
+// Returns an otpauth:// URL — render it as a QR code for the user to
+// scan with an authenticator app. The secret does not gate login yet;
+// call ConfirmTOTP with a code from the app to activate it.
+func EnrollTOTP(ctx context.Context, e *Engine, userID string) (string, error) {
+	if e.totp == nil {
+		return "", ErrTOTPNotConfigured
+	}
+	return auth.EnrollTOTP(ctx, e.users, e.totp, e.totpGen, e.encryptor, e.totpIssuerName, userID)
+}
+
+// ConfirmTOTP activates a pending TOTP enrollment once the user proves
+// they've captured the secret by submitting one valid code from their
+// authenticator app.
+func ConfirmTOTP(ctx context.Context, e *Engine, userID, code string) error {
+	if e.totp == nil {
+		return ErrTOTPNotConfigured
+	}
+	return auth.ConfirmTOTP(ctx, e.totp, e.totpGen, e.encryptor, e.audit, e.log, userID, code)
+}
+
+// DisableTOTP removes 2FA from an account. Requires the current
+// password as re-confirmation, same reasoning as
+// ChangePassword/DeleteAccount.
+func DisableTOTP(ctx context.Context, e *Engine, userID, currentPassword string) error {
+	if e.totp == nil {
+		return ErrTOTPNotConfigured
+	}
+	return auth.DisableTOTP(ctx, e.users, e.totp, e.hasher, e.audit, e.log, userID, currentPassword)
+}
+
+// CompleteLoginWithTOTP finishes a login that Login paused with
+// *auth.ErrTOTPRequired (retrievable via errors.As). pendingToken is
+// the value from that error; code is the current value from the
+// user's authenticator app.
+func CompleteLoginWithTOTP(ctx context.Context, e *Engine, pendingToken, code, callerIP, userAgent string) (Tokens, error) {
+	if e.totp == nil {
+		return Tokens{}, ErrTOTPNotConfigured
+	}
+	return auth.CompleteLoginWithTOTP(ctx, e.users, e.sessions, e.totp, e.totpGen, e.encryptor, e.ids, e.refreshGen, e.jwtIssuer, e.pendingIssuer, e.audit, e.log, pendingToken, code, callerIP, userAgent)
 }
