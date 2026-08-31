@@ -48,6 +48,29 @@ type Config struct {
 	// blank, but you almost certainly want to override it with your
 	// own app's name.
 	TOTPIssuerName string
+	// WebAuthn is optional — only required if BeginRegisterPasskey /
+	// FinishRegisterPasskey / ListPasskeys / DeletePasskey /
+	// BeginWebAuthnLogin / CompleteLoginWithWebAuthn are used. Left
+	// unset, those facade functions return ErrWebAuthnNotConfigured
+	// and Login never checks for a passkey. If set, EncryptionKey,
+	// WebAuthnRPID, WebAuthnRPDisplayName, and WebAuthnRPOrigins must
+	// all also be set (validated below).
+	WebAuthn store.WebAuthnCredentialStore
+	// WebAuthnRPID is your app's real domain (e.g. "yourapp.com") —
+	// unlike TOTPIssuerName, this is a genuine security parameter, not
+	// cosmetic: passkeys are cryptographically bound to it, and a
+	// credential registered against one RPID will never validate
+	// against another.
+	WebAuthnRPID string
+	// WebAuthnRPDisplayName is shown to the user during the browser's
+	// passkey prompt (e.g. "Your App Inc").
+	WebAuthnRPDisplayName string
+	// WebAuthnRPOrigins are the exact origins (scheme + host [+ port])
+	// browsers are allowed to present credentials from, e.g.
+	// []string{"https://yourapp.com"}. Must match what the browser
+	// actually sends — a mismatch here is a common integration error,
+	// not a security relaxation to work around casually.
+	WebAuthnRPOrigins []string
 
 	// Optional — sensible defaults applied in New() if zero-valued.
 	// These are tuning knobs, not security-critical secrets, so
@@ -77,6 +100,14 @@ func (c *Config) validate() error {
 	}
 	if c.TOTP != nil && c.EncryptionKey == "" {
 		return ErrMissingEncryptionKey
+	}
+	if c.WebAuthn != nil {
+		if c.EncryptionKey == "" {
+			return ErrMissingEncryptionKey
+		}
+		if c.WebAuthnRPID == "" || c.WebAuthnRPDisplayName == "" || len(c.WebAuthnRPOrigins) == 0 {
+			return ErrMissingWebAuthnConfig
+		}
 	}
 	return nil
 }
