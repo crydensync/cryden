@@ -73,8 +73,8 @@ func main() {
 	err = cryden.ConfirmTOTP(ctx, engine, user.ID, code)
 	check("confirmed TOTP enrollment", err)
 
-	// 6. Login now — must pause with *auth.ErrTOTPRequired, no tokens.
-	pendingToken1 := requirePending(ctx, engine, "login after confirmation returns *auth.ErrTOTPRequired")
+	// 6. Login now — must pause with *auth.ErrSecondFactorRequired, no tokens.
+	pendingToken1 := requirePending(ctx, engine, "login after confirmation returns *auth.ErrSecondFactorRequired")
 
 	// 7. Complete with a wrong code — must be rejected.
 	_, err = cryden.CompleteLoginWithTOTP(ctx, engine, pendingToken1, "000000", "1.2.3.4", "smoketest-agent")
@@ -130,13 +130,13 @@ func main() {
 }
 
 // requirePending logs in and asserts the account is correctly paused
-// on *auth.ErrTOTPRequired, returning the pending token for the
+// on *auth.ErrSecondFactorRequired, returning the pending token for the
 // caller to complete or probe against.
 func requirePending(ctx context.Context, engine *cryden.Engine, step string) string {
 	tokens, err := cryden.Login(ctx, engine, email, password, "1.2.3.4", "smoketest-agent")
-	var totpRequired *auth.ErrTOTPRequired
+	var totpRequired *auth.ErrSecondFactorRequired
 	if !errors.As(err, &totpRequired) {
-		fail(fmt.Sprintf("%s: expected *auth.ErrTOTPRequired, got %v", step, err))
+		fail(fmt.Sprintf("%s: expected *auth.ErrSecondFactorRequired, got %v", step, err))
 		return ""
 	}
 	if tokens.AccessToken != "" {
