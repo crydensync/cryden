@@ -106,23 +106,26 @@ func (s Session) ToPublic() PublicSession {
 type AuditEventType string
 
 const (
-	EventSignupSuccess        AuditEventType = "signup_success"
-	EventLoginSuccess         AuditEventType = "login_success"
-	EventLoginFailed          AuditEventType = "login_failed"
-	EventLogout               AuditEventType = "logout"
-	EventLogoutAll            AuditEventType = "logout_all"
-	EventTokenRotated         AuditEventType = "token_rotated"
-	EventTokenReuseDetected   AuditEventType = "token_reuse_detected"
-	EventSessionRevoked       AuditEventType = "session_revoked"
-	EventAccountLocked        AuditEventType = "account_locked"
-	EventPasswordChanged      AuditEventType = "password_changed"
-	EventEmailChangeRequested AuditEventType = "email_change_requested"
-	EventEmailChanged         AuditEventType = "email_changed"
-	EventAccountDeleted       AuditEventType = "account_deleted"
-	EventOAuthLinked          AuditEventType = "oauth_linked"
-	EventTOTPEnabled          AuditEventType = "totp_enabled"
-	EventTOTPDisabled         AuditEventType = "totp_disabled"
-	EventTOTPChallengeFailed  AuditEventType = "totp_challenge_failed"
+	EventSignupSuccess           AuditEventType = "signup_success"
+	EventLoginSuccess            AuditEventType = "login_success"
+	EventLoginFailed             AuditEventType = "login_failed"
+	EventLogout                  AuditEventType = "logout"
+	EventLogoutAll               AuditEventType = "logout_all"
+	EventTokenRotated            AuditEventType = "token_rotated"
+	EventTokenReuseDetected      AuditEventType = "token_reuse_detected"
+	EventSessionRevoked          AuditEventType = "session_revoked"
+	EventAccountLocked           AuditEventType = "account_locked"
+	EventPasswordChanged         AuditEventType = "password_changed"
+	EventEmailChangeRequested    AuditEventType = "email_change_requested"
+	EventEmailChanged            AuditEventType = "email_changed"
+	EventAccountDeleted          AuditEventType = "account_deleted"
+	EventOAuthLinked             AuditEventType = "oauth_linked"
+	EventTOTPEnabled             AuditEventType = "totp_enabled"
+	EventTOTPDisabled            AuditEventType = "totp_disabled"
+	EventTOTPChallengeFailed     AuditEventType = "totp_challenge_failed"
+	EventWebAuthnRegistered      AuditEventType = "webauthn_registered"
+	EventWebAuthnRemoved         AuditEventType = "webauthn_removed"
+	EventWebAuthnChallengeFailed AuditEventType = "webauthn_challenge_failed"
 )
 
 // AuditEvent is a single security-relevant, queryable record.
@@ -232,4 +235,39 @@ type TOTPStore interface {
 	// ErrNotFound if no secret is pending for userID.
 	Confirm(ctx context.Context, userID string) error
 	Delete(ctx context.Context, userID string) error
+}
+
+// WebAuthnCredential represents one registered passkey. Unlike
+// TOTPSecret (one per user), a user can have several — one per
+// device/authenticator. CredentialData is the JSON-marshaled form of
+// the underlying webauthn.Credential library struct, stored as a
+// blob rather than decomposed into columns — that struct gains new
+// fields as the library evolves, and a blob avoids the storage layer
+// drifting out of sync with it. CredentialID is denormalized out of
+// that blob purely so it can be indexed/queried directly (matching a
+// credential during login, excluding it during re-registration)
+// without deserializing every row first.
+type WebAuthnCredential struct {
+	ID             string
+	UserID         string
+	CredentialID   []byte
+	CredentialData []byte
+	// Nickname is a user-supplied label ("MacBook Touch ID") shown
+	// when listing passkeys — purely presentational, never used for
+	// any security decision.
+	Nickname   string
+	CreatedAt  time.Time
+	LastUsedAt *time.Time
+}
+
+// WebAuthnCredentialStore defines persistence for passkeys.
+type WebAuthnCredentialStore interface {
+	Add(ctx context.Context, cred WebAuthnCredential) error
+	ListByUser(ctx context.Context, userID string) ([]WebAuthnCredential, error)
+	// Update overwrites CredentialData and LastUsedAt for the row
+	// matching CredentialID — called after a successful login to
+	// persist the authenticator's updated signature counter (cloned-
+	// authenticator detection depends on this actually advancing).
+	Update(ctx context.Context, cred WebAuthnCredential) error
+	Delete(ctx context.Context, userID string, credentialID []byte) error
 }
