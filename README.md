@@ -163,19 +163,66 @@ err = cryden.ConfirmTOTP(ctx, engine, userID, codeFromApp)
 // only after this succeeds does the account require a code to log in
 ```
 
-Once confirmed, `Login` no longer issues tokens directly for that account — it returns `*auth.ErrTOTPRequired` (retrievable via `errors.As`) carrying a short-lived pending token:
+Once confirmed, `Login` no longer issues tokens directly for that account — it returns `*auth.ErrSecondFactorRequired` (retrievable via `errors.As`) carrying a short-lived pending token and the list of enrolled second-factor methods:
 
 ```go
 tokens, err := cryden.Login(ctx, engine, email, password, callerIP, userAgent)
 
-var totpRequired *auth.ErrTOTPRequired
-if errors.As(err, &totpRequired) {
-	// prompt for a code, then:
-	tokens, err = cryden.CompleteLoginWithTOTP(ctx, engine, totpRequired.PendingToken, code, callerIP, userAgent)
+var secondFactor *auth.ErrSecondFactorRequired
+if errors.As(err, &secondFactor) {
+	// secondFactor.Methods is e.g. []string{"totp"} — prompt accordingly, then:
+	tokens, err = cryden.CompleteLoginWithTOTP(ctx, engine, secondFactor.PendingToken, code, callerIP, userAgent)
 }
 ```
 
 The pending token expires after 5 minutes and is only ever valid for completing that one login — it's a distinct token type from an access token, not just a permissive one. `DisableTOTP(ctx, engine, userID, currentPassword)` removes 2FA from an account and requires the current password as re-confirmation. Calling any TOTP function without `Config.TOTP` set returns `cryden.ErrTOTPNotConfigured`.
+
+## Passkeys (WebAuthn, as a second factor)
+
+Passkeys are supported as an additional second-factor method, unified with TOTP under the same `*auth.ErrSecondFactorRequired` pause state — an account can have TOTP, a passkey, both, or neither; `Login` reports whichever are enrolled via `Methods` and the caller picks. (Passwordless *primary* login via passkeys — no password step at all — isn't built yet; this is 2FA on top of a password, same as TOTP.)
+
+Requires four additional `Config` fields, all required together:
+
+```go
+engine, err := cryden.New(cryden.Config{
+	// ...required fields, EncryptionKey (shared with TOTP if both are configured)...
+	WebAuthn:              postgres.NewWebAuthnStore(db), // or memory.NewWebAuthnStore()
+	WebAuthnRPID:          "yourapp.com",                 // your real domain — see note below
+	WebAuthnRPDisplayName: "Your App Inc",                // shown in the browser's passkey prompt
+	WebAuthnRPOrigins:     []string{"https://yourapp.com"},
+})
+```
+
+`WebAuthnRPID` is a genuine security parameter, not cosmetic like `TOTPIssuerName` — passkeys are cryptographically bound to it, and a credential registered against one RPID will never validate against another. `WebAuthnRPOrigins` must exactly match what the browser actually sends.
+
+Registration is a begin/finish ceremony — the engine never talks to the browser directly, it only produces and consumes the JSON payloads:
+
+```go
+creationOptionsJSON, ceremonyToken, err := cryden.BeginRegisterPasskey(ctx, engine, userID)
+// forward creationOptionsJSON to the browser's navigator.credentials.create() call
+
+err = cryden.FinishRegisterPasskey(ctx, engine, userID, ceremonyToken, clientResponseJSON, "MacBook Touch ID")
+// clientResponseJSON is the raw JSON body the browser call resolved with
+```
+
+`ceremonyToken` is the WebAuthn ceremony's own short-lived challenge state, encrypted with the same `EncryptionKey` used for TOTP secrets — pass it through unmodified, there's no separate ephemeral store to manage.
+
+Login completion is a three-call sequence — `Login` pauses the same way it does for TOTP, but the passkey ceremony itself is its own begin/finish round trip on top of that:
+
+```go
+tokens, err := cryden.Login(ctx, engine, email, password, callerIP, userAgent)
+
+var secondFactor *auth.ErrSecondFactorRequired
+if errors.As(err, &secondFactor) {
+	// secondFactor.Methods might be []string{"webauthn"} or []string{"totp", "webauthn"}
+	assertionOptionsJSON, ceremonyToken, err := cryden.BeginWebAuthnLogin(ctx, engine, secondFactor.PendingToken)
+	// forward assertionOptionsJSON to navigator.credentials.get()
+
+	tokens, err = cryden.CompleteLoginWithWebAuthn(ctx, engine, secondFactor.PendingToken, ceremonyToken, clientResponseJSON, callerIP, userAgent)
+}
+```
+
+`ListPasskeys(ctx, engine, userID)` lists registered passkeys (nickname, creation time, last used). `DeletePasskey(ctx, engine, userID, credentialID, currentPassword)` removes one — requires the current password, same reasoning as `DisableTOTP`. Calling any passkey function without `Config.WebAuthn` set returns `cryden.ErrWebAuthnNotConfigured`.
 
 ## AI-assisted admin queries (library support only)
 
@@ -185,7 +232,7 @@ The `ai` subpackage provides the safety machinery for natural-language admin too
 
 - Signup, login, logout (single device + all devices)
 - OAuth login/signup (Google, GitHub, or any provider) with explicit, non-auto-linking account collision handling — see [OAuth](#oauth-google-github-or-any-provider)
-- Two-factor authentication (TOTP) with encrypted-at-rest secrets and a confirm-before-enforce enrollment flow — see [Two-factor authentication](#two-factor-authentication-totp)
+- Two-factor authentication: TOTP and passkeys (WebAuthn), unified under one pause state — see [Two-factor authentication](#two-factor-authentication-totp) and [Passkeys](#passkeys-webauthn-as-a-second-factor)
 - JWT access tokens + rotating opaque refresh tokens with theft/reuse detection
 - Session listing and revocation
 - Change password (requires current password, revokes all other sessions)
