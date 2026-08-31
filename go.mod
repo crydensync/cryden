@@ -3,6 +3,8 @@ module github.com/crydensync/cryden/v2
 go 1.25.0
 
 require (
+	github.com/descope/virtualwebauthn v1.0.5
+	github.com/go-webauthn/webauthn v0.18.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
 	github.com/lib/pq v1.12.3
@@ -16,3 +18,17 @@ require (
 // belongs in a consuming app, not the engine). Go still needs it to
 // build the otp package itself.
 require github.com/boombuler/barcode v1.0.1-0.20190219062509-6c824513bacc // indirect
+
+// github.com/go-webauthn/webauthn's own transitive dependencies
+// (fxamacker/cbor, go-webauthn/x, tinylib/msgp, etc.) are not listed
+// here individually — run 'go mod tidy' after pulling this branch to
+// resolve and pin them; no network access to the Go module proxy was
+// available while authoring this change to do it here.
+//
+// github.com/descope/virtualwebauthn is a real dependency, but only
+// ever imported from _test.go files and cmd/smoketest/webauthn-passkeys
+// — it lets tests exercise the actual go-webauthn ceremony
+// (BeginRegistration/CreateCredential/BeginLogin/ValidateLogin)
+// against a real, cryptographically valid simulated authenticator
+// response, rather than only testing the error paths a fake response
+// would otherwise be limited to.
