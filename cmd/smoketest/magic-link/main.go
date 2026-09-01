@@ -52,6 +52,9 @@ func main() {
 		Audit:           memory.NewAuditStore(),
 		Verifications:   memory.NewVerificationStore(),
 		MagicLinkSender: sender,
+		TOTP:            memory.NewTOTPStore(),
+		EncryptionKey:   "smoketest-encryption-key",
+		TOTPIssuerName:  "CrydenSync Smoke Test",
 	})
 	check("engine constructed", err)
 
