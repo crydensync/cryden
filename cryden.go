@@ -328,3 +328,33 @@ func CompleteLoginWithWebAuthn(ctx context.Context, e *Engine, pendingToken, cer
 	}
 	return auth.CompleteLoginWithWebAuthn(ctx, e.users, e.sessions, e.webauthn, e.webauthnProvider, e.encryptor, e.ids, e.refreshGen, e.jwtIssuer, e.pendingIssuer, e.audit, e.log, pendingToken, ceremonyToken, clientResponseJSON, callerIP, userAgent)
 }
+
+// ErrMagicLinkNotConfigured is returned by RequestMagicLink and
+// CompleteMagicLink if the Engine was built without
+// Config.MagicLinkSender set.
+var ErrMagicLinkNotConfigured = errors.New("cryden: magic-link login requires Config.MagicLinkSender (and Config.Verifications) to be set")
+
+// RequestMagicLink sends a passwordless login link to email, for an
+// existing account only — this does not create accounts. Always
+// returns nil for a nonexistent email (an email is only actually sent
+// when the account exists) to avoid leaking which emails are
+// registered; a genuine delivery failure for an existing account
+// still propagates.
+func RequestMagicLink(ctx context.Context, e *Engine, email, callerIP string) error {
+	if e.magicLinkSender == nil {
+		return ErrMagicLinkNotConfigured
+	}
+	return auth.RequestMagicLink(ctx, e.users, e.verifications, e.magicLinkSender, e.refreshGen, e.ids, e.rateLimiter, e.audit, e.log, email, callerIP)
+}
+
+// CompleteMagicLink logs in using the raw token from a link sent by
+// RequestMagicLink. Like Login, it routes through the same
+// second-factor gate — an account with TOTP/a passkey enrolled pauses
+// with *auth.ErrSecondFactorRequired here exactly as it would after a
+// correct password, retrievable via errors.As.
+func CompleteMagicLink(ctx context.Context, e *Engine, rawToken, callerIP, userAgent string) (Tokens, error) {
+	if e.magicLinkSender == nil {
+		return Tokens{}, ErrMagicLinkNotConfigured
+	}
+	return auth.CompleteMagicLink(ctx, e.users, e.sessions, e.verifications, e.totp, e.webauthn, e.ids, e.refreshGen, e.jwtIssuer, e.pendingIssuer, e.audit, e.log, rawToken, callerIP, userAgent)
+}
