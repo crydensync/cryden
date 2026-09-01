@@ -14,14 +14,15 @@ import (
 // functions (SignUp, Login, etc. in cryden.go). Consumers never
 // construct this directly — always via New(cfg).
 type Engine struct {
-	users         store.UserStore
-	sessions      store.SessionStore
-	audit         store.AuditStore
-	verifications store.VerificationStore
-	emailSender   notify.EmailSender
-	oauth         store.OAuthStore
-	totp          store.TOTPStore
-	webauthn      store.WebAuthnCredentialStore
+	users           store.UserStore
+	sessions        store.SessionStore
+	audit           store.AuditStore
+	verifications   store.VerificationStore
+	emailSender     notify.EmailSender
+	oauth           store.OAuthStore
+	totp            store.TOTPStore
+	webauthn        store.WebAuthnCredentialStore
+	magicLinkSender notify.MagicLinkSender
 
 	hasher           security.Hasher
 	ids              security.IDGenerator
@@ -103,6 +104,7 @@ func New(cfg Config) (*Engine, error) {
 		oauth:            cfg.OAuth,
 		totp:             cfg.TOTP,
 		webauthn:         cfg.WebAuthn,
+		magicLinkSender:  cfg.MagicLinkSender,
 		hasher:           hasher,
 		ids:              security.NewUUIDv7Generator(),
 		rateLimiter:      security.NewInMemoryRateLimiter(cfg.RateLimitAttempts, cfg.RateLimitWindow),

@@ -26,6 +26,11 @@ type Config struct {
 	// rather than a nil-pointer panic.
 	Verifications store.VerificationStore
 	EmailSender   notify.EmailSender
+	// MagicLinkSender is optional — only required if RequestMagicLink
+	// is used. Requires Verifications to also be set (magic-link
+	// tokens reuse the same VerificationStore email-change/verify
+	// tokens use, distinguished by store.PurposeMagicLink).
+	MagicLinkSender notify.MagicLinkSender
 	// OAuth is optional — only required if LoginWithOAuth is used.
 	// Left unset, LoginWithOAuth returns ErrOAuthNotConfigured.
 	OAuth store.OAuthStore
@@ -108,6 +113,9 @@ func (c *Config) validate() error {
 		if c.WebAuthnRPID == "" || c.WebAuthnRPDisplayName == "" || len(c.WebAuthnRPOrigins) == 0 {
 			return ErrMissingWebAuthnConfig
 		}
+	}
+	if c.MagicLinkSender != nil && c.Verifications == nil {
+		return ErrMissingVerificationStore
 	}
 	return nil
 }
