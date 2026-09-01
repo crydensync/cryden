@@ -195,5 +195,5 @@ func CompleteLoginWithTOTP(
 		return Tokens{}, ErrInvalidTOTPCode
 	}
 
-	return finishLogin(ctx, sessions, ids, refreshGen, jwtIssuer, audit, log, user, callerIP, userAgent, "totp")
+	return finishLogin(ctx, sessions, ids, refreshGen, jwtIssuer, audit, log, user, callerIP, userAgent, "totp", nil)
 }

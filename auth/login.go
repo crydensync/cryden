@@ -34,6 +34,7 @@ func Login(
 	sessions store.SessionStore,
 	totpStore store.TOTPStore,
 	webauthnStore store.WebAuthnCredentialStore,
+	recoveryCodeStore store.RecoveryCodeStore,
 	hasher security.Hasher,
 	ids security.IDGenerator,
 	refreshGen token.TokenGenerator,
@@ -111,24 +112,34 @@ func Login(
 	// every primary authentication method uses (magic-link login goes
 	// through this too) — a correct password only ever proves the
 	// primary factor, never bypasses a confirmed second one.
-	return completePrimaryAuth(ctx, sessions, totpStore, webauthnStore, ids, refreshGen, jwtIssuer, pendingIssuer, audit, log, user, callerIP, userAgent)
+	return completePrimaryAuth(ctx, sessions, totpStore, webauthnStore, recoveryCodeStore, ids, refreshGen, jwtIssuer, pendingIssuer, audit, log, user, callerIP, userAgent, nil)
 }
 
 // completePrimaryAuth is the shared tail of every primary
-// authentication path (password login, magic-link login, and any
-// future one) once the caller has independently established "this
-// really is the account owner." It collects any confirmed
+// authentication path (password login, magic-link login, OAuth login,
+// and any future one) once the caller has independently established
+// "this really is the account owner." It collects any confirmed
 // second-factor methods the account has enrolled — a confirmed TOTP
 // secret, one or more registered passkeys, or both — and either
 // pauses with *ErrSecondFactorRequired or finishes the login
 // directly. Centralizing this here means a new primary auth method
 // can never accidentally skip the second-factor gate by reimplementing
-// this check slightly differently.
+// this check slightly differently. extraMetadata is passed straight
+// through to finishLogin's audit event (e.g. OAuth's provider) — nil
+// if there's nothing to add.
+//
+// "recovery_code" is only ever added to Methods alongside a real
+// confirmed factor (totp/webauthn) — never on its own. Otherwise an
+// account that disabled its last real second factor but still has
+// unconsumed recovery codes sitting in storage would have those codes
+// silently become a permanent standalone backdoor into the account,
+// long after 2FA was supposedly turned off.
 func completePrimaryAuth(
 	ctx context.Context,
 	sessions store.SessionStore,
 	totpStore store.TOTPStore,
 	webauthnStore store.WebAuthnCredentialStore,
+	recoveryCodeStore store.RecoveryCodeStore,
 	ids security.IDGenerator,
 	refreshGen token.TokenGenerator,
 	jwtIssuer *token.JWTIssuer,
@@ -138,18 +149,28 @@ func completePrimaryAuth(
 	user store.User,
 	callerIP string,
 	userAgent string,
+	extraMetadata map[string]string,
 ) (Tokens, error) {
 	var methods []string
+	hasRealSecondFactor := false
 	if totpStore != nil {
 		secretRec, err := totpStore.GetByUserID(ctx, user.ID)
 		if err == nil && secretRec.ConfirmedAt != nil {
+			hasRealSecondFactor = true
 			methods = append(methods, "totp")
 		}
 	}
 	if webauthnStore != nil {
 		creds, err := webauthnStore.ListByUser(ctx, user.ID)
 		if err == nil && len(creds) > 0 {
+			hasRealSecondFactor = true
 			methods = append(methods, "webauthn")
+		}
+	}
+	if hasRealSecondFactor && recoveryCodeStore != nil {
+		count, err := recoveryCodeStore.CountUnused(ctx, user.ID)
+		if err == nil && count > 0 {
+			methods = append(methods, "recovery_code")
 		}
 	}
 	if len(methods) > 0 {
@@ -161,15 +182,19 @@ func completePrimaryAuth(
 		return Tokens{}, &ErrSecondFactorRequired{PendingToken: pendingToken, Methods: methods}
 	}
 
-	return finishLogin(ctx, sessions, ids, refreshGen, jwtIssuer, audit, log, user, callerIP, userAgent, "")
+	return finishLogin(ctx, sessions, ids, refreshGen, jwtIssuer, audit, log, user, callerIP, userAgent, "", extraMetadata)
 }
 
 // finishLogin issues a new session (access + refresh token pair) for
-// an already-authenticated user. Shared by Login (password-only
-// accounts) and CompleteLoginWithTOTP (accounts with 2FA) so both
-// paths create sessions identically — a second factor changes how a
-// caller gets here, never what a completed login produces. mfaMethod
-// is recorded in the audit event's metadata ("" for password-only).
+// an already-authenticated user. Shared by every path that reaches a
+// completed login (password, magic-link, OAuth, and each
+// second-factor completion) so they all create sessions identically.
+// mfaMethod is recorded in the audit event's metadata ("" for no
+// second factor). extraMetadata is merged in alongside it — e.g.
+// LoginWithOAuth passes {"provider": provider} so the audit trail
+// still shows which provider was used, the same detail it recorded
+// before this became a shared helper. Pass nil if there's nothing to
+// add.
 func finishLogin(
 	ctx context.Context,
 	sessions store.SessionStore,
@@ -182,6 +207,7 @@ func finishLogin(
 	callerIP string,
 	userAgent string,
 	mfaMethod string,
+	extraMetadata map[string]string,
 ) (Tokens, error) {
 	sessionID, err := ids.New()
 	if err != nil {
@@ -214,8 +240,14 @@ func finishLogin(
 	}
 
 	var metadata map[string]string
-	if mfaMethod != "" {
-		metadata = map[string]string{"mfa": mfaMethod}
+	if mfaMethod != "" || len(extraMetadata) > 0 {
+		metadata = make(map[string]string, len(extraMetadata)+1)
+		for k, v := range extraMetadata {
+			metadata[k] = v
+		}
+		if mfaMethod != "" {
+			metadata["mfa"] = mfaMethod
+		}
 	}
 	if err := audit.Record(ctx, store.AuditEvent{
 		Type:     store.EventLoginSuccess,
