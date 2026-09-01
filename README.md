@@ -224,6 +224,31 @@ if errors.As(err, &secondFactor) {
 
 `ListPasskeys(ctx, engine, userID)` lists registered passkeys (nickname, creation time, last used). `DeletePasskey(ctx, engine, userID, credentialID, currentPassword)` removes one — requires the current password, same reasoning as `DisableTOTP`. Calling any passkey function without `Config.WebAuthn` set returns `cryden.ErrWebAuthnNotConfigured`.
 
+## Magic-link (passwordless) login
+
+Requires one additional `Config` field:
+
+```go
+engine, err := cryden.New(cryden.Config{
+	// ...required fields, and Verifications (shared with email-change tokens)...
+	MagicLinkSender: yourMagicLinkSender, // implements notify.MagicLinkSender
+})
+```
+
+`MagicLinkSender` is a separate interface from `EmailSender` — not a new method added to it, since `EmailSender` already shipped and adding a required method would break every existing implementation. `Config.Verifications` must also be set; magic-link tokens reuse the same store email-change tokens use, distinguished by purpose internally.
+
+This logs in an **existing account only** — it doesn't create one:
+
+```go
+err := cryden.RequestMagicLink(ctx, engine, email, callerIP)
+// always nil for a nonexistent email too (avoids leaking which emails are registered);
+// a real delivery failure for an existing account still returns as an error
+
+tokens, err := cryden.CompleteMagicLink(ctx, engine, rawTokenFromTheLink, callerIP, userAgent)
+```
+
+The link is valid for 15 minutes and single-use — clicking it a second time fails the same way an expired one does. Like `Login`, `CompleteMagicLink` routes through the same second-factor gate: an account with TOTP/a passkey enrolled returns `*auth.ErrSecondFactorRequired` here exactly as it would after a correct password — clicking the link proves email ownership, the primary factor, not a bypass of a confirmed second one. Calling either function without `Config.MagicLinkSender` set returns `cryden.ErrMagicLinkNotConfigured`.
+
 ## AI-assisted admin queries (library support only)
 
 The `ai` subpackage provides the safety machinery for natural-language admin tooling — an allowlisted `QueryIntent` type, `validateIntent`, and `ExecuteQuery` — plus `store/postgres.SafeQueryStore`, a read-only query executor. This is a foundation for tools like `csax`'s CLI to build on, not a feature you call directly in application code. An LLM's output is treated as untrusted data to validate against a strict allowlist, never as SQL to execute — and the actual DB connection passed to `SafeQueryStore` must be opened with a read-only Postgres role, since that's the real safety boundary, not just the allowlist check. `ai.LLMProvider` ships zero implementations; bring your own (OpenAI, Anthropic, OpenRouter, a local model).
@@ -233,6 +258,7 @@ The `ai` subpackage provides the safety machinery for natural-language admin too
 - Signup, login, logout (single device + all devices)
 - OAuth login/signup (Google, GitHub, or any provider) with explicit, non-auto-linking account collision handling — see [OAuth](#oauth-google-github-or-any-provider)
 - Two-factor authentication: TOTP and passkeys (WebAuthn), unified under one pause state — see [Two-factor authentication](#two-factor-authentication-totp) and [Passkeys](#passkeys-webauthn-as-a-second-factor)
+- Magic-link (passwordless) login for existing accounts, routed through the same second-factor gate — see [Magic-link login](#magic-link-passwordless-login)
 - JWT access tokens + rotating opaque refresh tokens with theft/reuse detection
 - Session listing and revocation
 - Change password (requires current password, revokes all other sessions)
@@ -247,7 +273,7 @@ The `ai` subpackage provides the safety machinery for natural-language admin too
 
 ## What's not in v2 (yet)
 
-CLI, HTTP API, and language SDKs are separate repositories that wrap this engine — this repo is the core library only. Magic links, SMS OTP, WebAuthn, SAML, and other advanced auth methods are planned for later releases.
+CLI, HTTP API, and language SDKs are separate repositories that wrap this engine — this repo is the core library only. SMS OTP, SAML, and other advanced auth methods are planned for later releases. Passkeys are currently second-factor only — passwordless *primary* login via passkeys (no password step at all) is a planned fast-follow now that magic-link forced the shared "login without a password" plumbing to exist.
 
 ## License
 
