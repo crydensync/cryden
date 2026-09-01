@@ -127,6 +127,9 @@ const (
 	EventWebAuthnRemoved         AuditEventType = "webauthn_removed"
 	EventWebAuthnChallengeFailed AuditEventType = "webauthn_challenge_failed"
 	EventMagicLinkRequested      AuditEventType = "magic_link_requested"
+	EventRecoveryCodesGenerated  AuditEventType = "recovery_codes_generated"
+	EventRecoveryCodeUsed        AuditEventType = "recovery_code_used"
+	EventRecoveryCodeFailed      AuditEventType = "recovery_code_failed"
 )
 
 // AuditEvent is a single security-relevant, queryable record.
@@ -277,4 +280,45 @@ type WebAuthnCredentialStore interface {
 	// authenticator detection depends on this actually advancing).
 	Update(ctx context.Context, cred WebAuthnCredential) error
 	Delete(ctx context.Context, userID string, credentialID []byte) error
+}
+
+// RecoveryCode is one single-use fallback code for accounts with a
+// second factor enrolled. CodeHash uses the same fast SHA-256 hash as
+// refresh tokens (token.HashToken) rather than bcrypt — a recovery
+// code is a high-entropy random value, not a user-chosen secret, so
+// there's no weak-guessing risk a slow hash would defend against; the
+// only way to find one is to already have it.
+type RecoveryCode struct {
+	UserID    string
+	CodeHash  string
+	UsedAt    *time.Time
+	CreatedAt time.Time
+}
+
+// RecoveryCodeStore defines persistence for a user's batch of
+// recovery codes.
+type RecoveryCodeStore interface {
+	// ReplaceAll wipes any existing codes for userID and inserts
+	// codes as the new complete batch — generating a fresh set always
+	// invalidates every previous one, there's no way to add codes to
+	// an existing batch incrementally.
+	ReplaceAll(ctx context.Context, userID string, codes []RecoveryCode) error
+	// CountUnused is used to decide whether "recovery_code" belongs
+	// in Login's Methods list — cheaper than fetching and hashing
+	// every code just to check whether any remain.
+	CountUnused(ctx context.Context, userID string) (int, error)
+	// Consume finds an unused code matching codeHash for userID and
+	// marks it used, atomically — the same code must never validate
+	// twice. Returns ErrNotFound if no matching unused code exists
+	// (wrong code, already used, or none generated at all).
+	Consume(ctx context.Context, userID string, codeHash string) error
+	// DeleteAll removes every code for userID. Not wired into
+	// DisableTOTP/DeletePasskey automatically — recovery codes are
+	// harmless to leave in place even with no second factor active,
+	// since completePrimaryAuth only ever checks for unused recovery
+	// codes when the account also has a confirmed TOTP secret or a
+	// registered passkey (see completePrimaryAuth) — they can never
+	// stand in as a login gate on their own. DeleteAll exists for
+	// hygiene, if a host app wants to clean up explicitly.
+	DeleteAll(ctx context.Context, userID string) error
 }
