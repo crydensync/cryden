@@ -107,9 +107,38 @@ func Login(
 		log.Error("login: reset failed-attempts error", map[string]string{"error": err.Error(), "user_id": user.ID})
 	}
 
-	// Password verified. Collect any confirmed second-factor methods
-	// this account has enrolled — if there are any, pause here
-	// instead of issuing tokens directly.
+	// Password verified. Route through the same second-factor gate
+	// every primary authentication method uses (magic-link login goes
+	// through this too) — a correct password only ever proves the
+	// primary factor, never bypasses a confirmed second one.
+	return completePrimaryAuth(ctx, sessions, totpStore, webauthnStore, ids, refreshGen, jwtIssuer, pendingIssuer, audit, log, user, callerIP, userAgent)
+}
+
+// completePrimaryAuth is the shared tail of every primary
+// authentication path (password login, magic-link login, and any
+// future one) once the caller has independently established "this
+// really is the account owner." It collects any confirmed
+// second-factor methods the account has enrolled — a confirmed TOTP
+// secret, one or more registered passkeys, or both — and either
+// pauses with *ErrSecondFactorRequired or finishes the login
+// directly. Centralizing this here means a new primary auth method
+// can never accidentally skip the second-factor gate by reimplementing
+// this check slightly differently.
+func completePrimaryAuth(
+	ctx context.Context,
+	sessions store.SessionStore,
+	totpStore store.TOTPStore,
+	webauthnStore store.WebAuthnCredentialStore,
+	ids security.IDGenerator,
+	refreshGen token.TokenGenerator,
+	jwtIssuer *token.JWTIssuer,
+	pendingIssuer *token.MFAPendingIssuer,
+	audit store.AuditStore,
+	log logger.Logger,
+	user store.User,
+	callerIP string,
+	userAgent string,
+) (Tokens, error) {
 	var methods []string
 	if totpStore != nil {
 		secretRec, err := totpStore.GetByUserID(ctx, user.ID)
@@ -128,7 +157,7 @@ func Login(
 		if issueErr != nil {
 			return Tokens{}, issueErr
 		}
-		log.Info("login: password verified, awaiting second factor", map[string]string{"user_id": user.ID})
+		log.Info("login: primary factor verified, awaiting second factor", map[string]string{"user_id": user.ID})
 		return Tokens{}, &ErrSecondFactorRequired{PendingToken: pendingToken, Methods: methods}
 	}
 
