@@ -2,6 +2,8 @@ package auth
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"strings"
 
@@ -16,6 +18,16 @@ import (
 // this is a security parameter with an established convention (most
 // systems ship 8-10), not something worth exposing as a knob.
 const recoveryCodeCount = 10
+
+// recoveryCodeByteLength is 8 bytes (64 bits) per code — generated
+// directly via crypto/rand rather than through TokenGenerator, which
+// enforces a 128-bit minimum meant for session/refresh tokens and
+// rejects anything shorter. That minimum doesn't apply here: a
+// recovery code is short and human-typeable by design, single-use,
+// and each attempt already goes through the same rate limiting as any
+// other login attempt — 64 bits is the right tradeoff for this
+// specific use case, not a relaxation of the session-token bar.
+const recoveryCodeByteLength = 8
 
 var (
 	// ErrNoSecondFactorEnrolled is returned by GenerateRecoveryCodes
@@ -68,16 +80,11 @@ func GenerateRecoveryCodes(
 
 	rawCodes := make([]string, recoveryCodeCount)
 	toStore := make([]store.RecoveryCode, recoveryCodeCount)
-	gen, err := token.NewCryptoRandTokenGenerator(5)
-	if err != nil {
-		return nil, err
-	}
 	for i := range rawCodes {
-		raw, err := gen.New()
+		formatted, err := generateRecoveryCode()
 		if err != nil {
 			return nil, err
 		}
-		formatted := raw[:5] + "-" + raw[5:]
 		rawCodes[i] = formatted
 		toStore[i] = store.RecoveryCode{CodeHash: hashRecoveryCode(formatted)}
 	}
@@ -150,10 +157,32 @@ func CompleteLoginWithRecoveryCode(
 }
 
 // hashRecoveryCode normalizes user input (case, surrounding
-// whitespace) before hashing, since people will retype these by hand
-// and the formatting ("ABCDE-FGHIJ") is just for readability, not
-// part of the actual secret value.
+// whitespace, and the dash separators) before hashing, since people
+// will retype these by hand and the formatting ("a1b2-c3d4-e5f6-a7b8")
+// is just for readability, not part of the actual secret value.
 func hashRecoveryCode(raw string) string {
 	normalized := strings.ToLower(strings.TrimSpace(raw))
+	normalized = strings.ReplaceAll(normalized, "-", "")
 	return token.HashToken(normalized)
+}
+
+// generateRecoveryCode produces one recoveryCodeByteLength-byte random
+// value via crypto/rand, hex-encoded and grouped into dash-separated
+// 4-character blocks for readability (e.g. "a1b2-c3d4-e5f6-a7b8") —
+// purely cosmetic, stripped again by hashRecoveryCode before hashing.
+func generateRecoveryCode() (string, error) {
+	buf := make([]byte, recoveryCodeByteLength)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	hexStr := hex.EncodeToString(buf)
+	var groups []string
+	for i := 0; i < len(hexStr); i += 4 {
+		end := i + 4
+		if end > len(hexStr) {
+			end = len(hexStr)
+		}
+		groups = append(groups, hexStr[i:end])
+	}
+	return strings.Join(groups, "-"), nil
 }
