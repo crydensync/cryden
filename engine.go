@@ -23,6 +23,7 @@ type Engine struct {
 	totp            store.TOTPStore
 	webauthn        store.WebAuthnCredentialStore
 	magicLinkSender notify.MagicLinkSender
+	recoveryCodes   store.RecoveryCodeStore
 
 	hasher           security.Hasher
 	ids              security.IDGenerator
@@ -105,6 +106,7 @@ func New(cfg Config) (*Engine, error) {
 		totp:             cfg.TOTP,
 		webauthn:         cfg.WebAuthn,
 		magicLinkSender:  cfg.MagicLinkSender,
+		recoveryCodes:    cfg.RecoveryCodes,
 		hasher:           hasher,
 		ids:              security.NewUUIDv7Generator(),
 		rateLimiter:      security.NewInMemoryRateLimiter(cfg.RateLimitAttempts, cfg.RateLimitWindow),
