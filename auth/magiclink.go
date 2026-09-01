@@ -119,6 +119,7 @@ func CompleteMagicLink(
 	verifications store.VerificationStore,
 	totpStore store.TOTPStore,
 	webauthnStore store.WebAuthnCredentialStore,
+	recoveryCodeStore store.RecoveryCodeStore,
 	ids security.IDGenerator,
 	refreshGen token.TokenGenerator,
 	jwtIssuer *token.JWTIssuer,
@@ -152,5 +153,5 @@ func CompleteMagicLink(
 		return Tokens{}, err
 	}
 
-	return completePrimaryAuth(ctx, sessions, totpStore, webauthnStore, ids, refreshGen, jwtIssuer, pendingIssuer, audit, log, user, callerIP, userAgent)
+	return completePrimaryAuth(ctx, sessions, totpStore, webauthnStore, recoveryCodeStore, ids, refreshGen, jwtIssuer, pendingIssuer, audit, log, user, callerIP, userAgent, nil)
 }
