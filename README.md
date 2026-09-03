@@ -308,6 +308,23 @@ func (h *hibpChecker) IsBreached(ctx context.Context, password string) (bool, er
 
 Checked on `SignUp` and `ChangePassword`, after the password policy (cheap, local checks first) and after `ChangePassword`'s current-password verification (a new password's breach status should never leak to someone who hasn't already proven they own the account). **A checker error fails open** — SignUp/ChangePassword proceed rather than blocking on a third-party API's uptime; only a confirmed breach (`true, nil`) rejects the password with `auth.ErrPasswordBreached`.
 
+## Password policy
+
+```go
+engine, err := cryden.New(cryden.Config{
+	// ...required fields...
+	PasswordPolicy: security.PasswordPolicy{
+		MinLength:        12,
+		RequireUppercase: true,
+		RequireDigit:     true,
+	},
+})
+```
+
+Unlike TOTP/WebAuthn/recovery codes, this has **no "unconfigured means off" state** — leaving `PasswordPolicy` as the zero value applies `security.DefaultPasswordPolicy` instead (`MinLength: 8, MaxLength: 72`, no character-class requirements, following NIST 800-63B guidance that length matters far more than forced complexity rules). `MaxLength` defaults to 72 specifically because that's bcrypt's own real limit — without this check, a longer password hits a raw bcrypt library error at hash time instead of a clean validation error.
+
+A violation returns `*auth.ErrPasswordPolicyViolation{Violations []string}` — every broken rule at once (`"min_length"`, `"max_length"`, `"require_uppercase"`, `"require_lowercase"`, `"require_digit"`, `"require_symbol"`), not just the first one hit, so you can show a user everything wrong with their password in one pass instead of a fix-resubmit-discover-the-next-problem loop. These are stable machine-readable codes, not display strings — the engine doesn't own UI copy or localization anywhere else, so it doesn't start here either.
+
 ## AI-assisted admin queries (library support only)
 
 The `ai` subpackage provides the safety machinery for natural-language admin tooling — an allowlisted `QueryIntent` type, `validateIntent`, and `ExecuteQuery` — plus `store/postgres.SafeQueryStore`, a read-only query executor. This is a foundation for tools like `csax`'s CLI to build on, not a feature you call directly in application code. An LLM's output is treated as untrusted data to validate against a strict allowlist, never as SQL to execute — and the actual DB connection passed to `SafeQueryStore` must be opened with a read-only Postgres role, since that's the real safety boundary, not just the allowlist check. `ai.LLMProvider` ships zero implementations; bring your own (OpenAI, Anthropic, OpenRouter, a local model).
@@ -319,7 +336,7 @@ The `ai` subpackage provides the safety machinery for natural-language admin too
 - Two-factor authentication: TOTP and passkeys (WebAuthn), unified under one pause state — see [Two-factor authentication](#two-factor-authentication-totp) and [Passkeys](#passkeys-webauthn-as-a-second-factor)
 - Magic-link (passwordless) login for existing accounts, routed through the same second-factor gate — see [Magic-link login](#magic-link-passwordless-login)
 - Recovery (backup) codes as a second-factor fallback, with a safety guard against becoming a standalone backdoor once the real factor is removed — see [Recovery codes](#recovery-backup-codes)
-- Breached-password checking (interface-only, bring your own HIBP/etc.) — see [Breached-password check](#breached-password-check)
+- Breached-password checking (interface-only, bring your own HIBP/etc.) and a configurable, secure-by-default password policy — see [Breached-password check](#breached-password-check) and [Password policy](#password-policy)
 - JWT access tokens + rotating opaque refresh tokens with theft/reuse detection
 - Session listing and revocation
 - Change password (requires current password, revokes all other sessions)

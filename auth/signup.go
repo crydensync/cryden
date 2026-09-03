@@ -11,9 +11,14 @@ import (
 // SignUp creates a new user. callerIP is required and used only as a
 // rate-limit key and audit metadata — the engine never infers it.
 //
-// breachChecker is optional (nil-safe). A breachChecker error (the
-// check service itself failing) fails open — it's logged, not treated
-// as a rejection; only a confirmed breach blocks the password.
+// policy and breachChecker are both optional (nil-safe). If policy is
+// the zero value, security.DefaultPasswordPolicy is used instead —
+// password strength isn't an opt-in feature the way TOTP/WebAuthn
+// are, so there's no "unconfigured means off" state for it. Policy is
+// checked before the breach check, cheapest/local first. A
+// breachChecker error (the check service itself failing) fails open —
+// it's logged, not treated as a rejection; only a confirmed breach
+// blocks the password.
 func SignUp(
 	ctx context.Context,
 	users store.UserStore,
@@ -23,6 +28,7 @@ func SignUp(
 	breachChecker security.BreachedPasswordChecker,
 	audit store.AuditStore,
 	log logger.Logger,
+	policy security.PasswordPolicy,
 	email string,
 	password string,
 	callerIP string,
@@ -41,6 +47,10 @@ func SignUp(
 		// A user with this email already exists.
 		log.Warn("signup: duplicate email attempt", map[string]string{"ip": callerIP})
 		return store.User{}, ErrUserExists
+	}
+
+	if violations := policy.Validate(password); len(violations) > 0 {
+		return store.User{}, &ErrPasswordPolicyViolation{Violations: violations}
 	}
 
 	if breachChecker != nil {

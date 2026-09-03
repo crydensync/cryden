@@ -1,7 +1,8 @@
 // Command breached-password-check is a standalone, no-database smoke
 // test for the breach-checking flow: a confirmed breach rejects the
-// password, and a checker error fails open. Uses two tiny local fake
-// checkers, not a real HIBP client — see
+// password, a checker error fails open, and the checker is skipped
+// entirely when the password already fails policy. Uses two tiny
+// local fake checkers, not a real HIBP client — see
 // docs/testing/breached-password-check.md for why, and how to verify
 // against the real API instead. Run with:
 //
@@ -15,6 +16,7 @@ import (
 	"os"
 
 	"github.com/crydensync/cryden/v2"
+	"github.com/crydensync/cryden/v2/security"
 	"github.com/crydensync/cryden/v2/store/memory"
 )
 
@@ -70,18 +72,38 @@ func main() {
 	_, err = cryden.SignUp(ctx, engine2, "raymondproguy@dev.com", "password123", "1.2.3.4")
 	check("signup succeeds when the breach checker itself errors (fail open)", err)
 
-	// 3. A clean password with no breach passes.
-	cleanChecker := &fakeChecker{breached: false}
+	// 3. The checker is never called if policy already rejected the password.
+	uncalledChecker := &fakeChecker{breached: true}
 	engine3, err := cryden.New(cryden.Config{
 		JWTSecret:               "smoketest-jwt-secret-3",
 		Users:                   memory.NewUserStore(),
 		Sessions:                memory.NewSessionStore(),
 		Audit:                   memory.NewAuditStore(),
-		BreachedPasswordChecker: cleanChecker,
+		BreachedPasswordChecker: uncalledChecker,
+		PasswordPolicy:          security.PasswordPolicy{MinLength: 20},
 	})
 	check("engine 3 constructed", err)
 
-	_, err = cryden.SignUp(ctx, engine3, "raymondproguy@dev.com", "Tr0ubl3-Fr33!2026", "1.2.3.4")
+	_, err = cryden.SignUp(ctx, engine3, "raymondproguy@dev.com", "short1A", "1.2.3.4")
+	checkExpectError("signup with a policy-violating password is rejected", err)
+	if uncalledChecker.calls != 0 {
+		fail(fmt.Sprintf("expected the breach checker to never be called, got %d calls", uncalledChecker.calls))
+	} else {
+		pass("breach checker never called when policy already rejected the password")
+	}
+
+	// 4. A clean password with no breach passes.
+	cleanChecker := &fakeChecker{breached: false}
+	engine4, err := cryden.New(cryden.Config{
+		JWTSecret:               "smoketest-jwt-secret-4",
+		Users:                   memory.NewUserStore(),
+		Sessions:                memory.NewSessionStore(),
+		Audit:                   memory.NewAuditStore(),
+		BreachedPasswordChecker: cleanChecker,
+	})
+	check("engine 4 constructed", err)
+
+	_, err = cryden.SignUp(ctx, engine4, "raymondproguy@dev.com", "Tr0ubl3-Fr33!2026", "1.2.3.4")
 	check("signup with a clean, non-breached password succeeds", err)
 
 	fmt.Println()
