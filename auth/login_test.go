@@ -33,7 +33,7 @@ func TestLogin_Success(t *testing.T) {
 
 	// totpStore/pendingIssuer are nil — TOTP not configured for this
 	// engine, Login must behave exactly as it did before TOTP existed.
-	tokens, err := Login(ctx, users, sessions, nil, nil, hasher, ids, refreshGen, jwtIssuer, nil, limiter, audit, log,
+	tokens, err := Login(ctx, users, sessions, nil, nil, nil, hasher, ids, refreshGen, jwtIssuer, nil, limiter, audit, log,
 		"proguy@example.com", "correct-password", "1.2.3.4", "test-agent", 5, time.Minute)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -51,7 +51,7 @@ func TestLogin_WrongPasswordRejected(t *testing.T) {
 	hash, _ := hasher.Hash("correct-password")
 	users.Create(ctx, storeUser("user-1", "proguy@example.com", hash))
 
-	_, err := Login(ctx, users, sessions, nil, nil, hasher, ids, refreshGen, jwtIssuer, nil, limiter, audit, log,
+	_, err := Login(ctx, users, sessions, nil, nil, nil, hasher, ids, refreshGen, jwtIssuer, nil, limiter, audit, log,
 		"proguy@example.com", "wrong-password", "1.2.3.4", "test-agent", 5, time.Minute)
 	if err != ErrInvalidCredentials {
 		t.Errorf("expected ErrInvalidCredentials, got %v", err)
@@ -65,7 +65,7 @@ func TestLogin_NonexistentUserRejectedWithSameError(t *testing.T) {
 	log := testLogger{}
 	ctx := context.Background()
 
-	_, err := Login(ctx, users, sessions, nil, nil, hasher, ids, refreshGen, jwtIssuer, nil, limiter, audit, log,
+	_, err := Login(ctx, users, sessions, nil, nil, nil, hasher, ids, refreshGen, jwtIssuer, nil, limiter, audit, log,
 		"nobody@example.com", "any-password", "1.2.3.4", "test-agent", 5, time.Minute)
 	if err != ErrInvalidCredentials {
 		t.Errorf("expected ErrInvalidCredentials (same as wrong password), got %v", err)
@@ -93,12 +93,12 @@ func TestLogin_NonexistentUserTimingMatchesWrongPassword(t *testing.T) {
 	users.Create(ctx, storeUser("user-1", "proguy@example.com", hash))
 
 	start := time.Now()
-	Login(ctx, users, sessions, nil, nil, hasher, ids, refreshGen, jwtIssuer, nil, limiter, audit, log,
+	Login(ctx, users, sessions, nil, nil, nil, hasher, ids, refreshGen, jwtIssuer, nil, limiter, audit, log,
 		"proguy@example.com", "wrong-password", "1.2.3.4", "test-agent", 5, time.Minute)
 	wrongPasswordDuration := time.Since(start)
 
 	start = time.Now()
-	Login(ctx, users, sessions, nil, nil, hasher, ids, refreshGen, jwtIssuer, nil, limiter, audit, log,
+	Login(ctx, users, sessions, nil, nil, nil, hasher, ids, refreshGen, jwtIssuer, nil, limiter, audit, log,
 		"nobody@example.com", "any-password", "1.2.3.4", "test-agent", 5, time.Minute)
 	nonexistentUserDuration := time.Since(start)
 

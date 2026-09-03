@@ -15,8 +15,11 @@ import (
 // identity. The engine never talks to Google/GitHub itself, and never
 // performs an HTTP redirect — by the time this is called, the OAuth
 // dance is already over. provider is a plain string ("google",
-// "github"); externalID is the provider's own stable user ID, never
-// its email.
+// "github", or any other — the engine has no fixed list, adding a new
+// provider is entirely api's job: register the app, implement its
+// redirect/callback/token-exchange, then call this with its own
+// provider string); externalID is the provider's own stable user ID,
+// never its email.
 //
 // Three outcomes:
 //  1. An OAuthIdentity already exists for (provider, externalID) ->
@@ -29,14 +32,26 @@ import (
 //     link is created.
 //  3. Neither -> create a new User and OAuthIdentity, then issue a
 //     session, same as a fresh signup.
+//
+// Either way, session issuance routes through the same
+// completePrimaryAuth gate password/magic-link login use — an
+// account with TOTP/a passkey enrolled pauses with
+// *ErrSecondFactorRequired here too. Confirming an OAuth identity
+// proves the primary factor, exactly like a correct password; it was
+// never meant to bypass a confirmed second one, and until now it
+// accidentally did.
 func LoginWithOAuth(
 	ctx context.Context,
 	users store.UserStore,
 	oauth store.OAuthStore,
 	sessions store.SessionStore,
+	totpStore store.TOTPStore,
+	webauthnStore store.WebAuthnCredentialStore,
+	recoveryCodeStore store.RecoveryCodeStore,
 	ids security.IDGenerator,
 	refreshGen token.TokenGenerator,
 	jwtIssuer *token.JWTIssuer,
+	pendingIssuer *token.MFAPendingIssuer,
 	audit store.AuditStore,
 	log logger.Logger,
 	provider string,
@@ -99,45 +114,11 @@ func LoginWithOAuth(
 		return Tokens{}, err
 	}
 
-	sessionID, err := ids.New()
+	user, err := users.GetByID(ctx, identity.UserID)
 	if err != nil {
 		return Tokens{}, err
 	}
-
-	rawRefresh, err := refreshGen.New()
-	if err != nil {
-		return Tokens{}, err
-	}
-
-	session := store.Session{
-		ID:        sessionID,
-		FamilyID:  sessionID,
-		UserID:    identity.UserID,
-		TokenHash: token.HashToken(rawRefresh),
-		IP:        callerIP,
-		UserAgent: userAgent,
-	}
-	if err := sessions.Create(ctx, session); err != nil {
-		return Tokens{}, err
-	}
-
-	accessToken, err := jwtIssuer.Issue(identity.UserID)
-	if err != nil {
-		return Tokens{}, err
-	}
-
-	if err := audit.Record(ctx, store.AuditEvent{
-		Type:     store.EventLoginSuccess,
-		UserID:   identity.UserID,
-		IP:       callerIP,
-		Metadata: map[string]string{"provider": provider},
-	}); err != nil {
-		log.Error("oauth: audit record failed", map[string]string{"error": err.Error(), "user_id": identity.UserID})
-	}
-
-	log.Info("oauth: login completed", map[string]string{"user_id": identity.UserID, "provider": provider})
-
-	return Tokens{AccessToken: accessToken, RefreshToken: rawRefresh}, nil
+	return completePrimaryAuth(ctx, sessions, totpStore, webauthnStore, recoveryCodeStore, ids, refreshGen, jwtIssuer, pendingIssuer, audit, log, user, callerIP, userAgent, map[string]string{"provider": provider})
 }
 
 // LinkOAuthIdentity attaches a confirmed external identity to an

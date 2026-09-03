@@ -76,6 +76,12 @@ type Config struct {
 	// actually sends — a mismatch here is a common integration error,
 	// not a security relaxation to work around casually.
 	WebAuthnRPOrigins []string
+	// RecoveryCodes is optional — only required if
+	// GenerateRecoveryCodes / CompleteLoginWithRecoveryCode are used.
+	// Left unset, those facade functions return
+	// ErrRecoveryCodesNotConfigured and Login never advertises
+	// "recovery_code" as an available second-factor method.
+	RecoveryCodes store.RecoveryCodeStore
 
 	// Optional — sensible defaults applied in New() if zero-valued.
 	// These are tuning knobs, not security-critical secrets, so

@@ -33,7 +33,7 @@ func SignUp(ctx context.Context, e *Engine, email, password, callerIP string) (s
 // and the list of enrolled methods; complete via CompleteLoginWithTOTP
 // or BeginWebAuthnLogin/CompleteLoginWithWebAuthn accordingly.
 func Login(ctx context.Context, e *Engine, email, password, callerIP, userAgent string) (Tokens, error) {
-	return auth.Login(ctx, e.users, e.sessions, e.totp, e.webauthn, e.hasher, e.ids, e.refreshGen, e.jwtIssuer, e.pendingIssuer, e.rateLimiter, e.audit, e.log, email, password, callerIP, userAgent, e.lockoutThreshold, e.lockoutDuration)
+	return auth.Login(ctx, e.users, e.sessions, e.totp, e.webauthn, e.recoveryCodes, e.hasher, e.ids, e.refreshGen, e.jwtIssuer, e.pendingIssuer, e.rateLimiter, e.audit, e.log, email, password, callerIP, userAgent, e.lockoutThreshold, e.lockoutDuration)
 }
 
 // ChangePassword requires the caller's current password as
@@ -86,7 +86,7 @@ func LoginWithOAuth(ctx context.Context, e *Engine, provider, externalID, email,
 	if e.oauth == nil {
 		return Tokens{}, ErrOAuthNotConfigured
 	}
-	return auth.LoginWithOAuth(ctx, e.users, e.oauth, e.sessions, e.ids, e.refreshGen, e.jwtIssuer, e.audit, e.log, provider, externalID, email, callerIP, userAgent)
+	return auth.LoginWithOAuth(ctx, e.users, e.oauth, e.sessions, e.totp, e.webauthn, e.recoveryCodes, e.ids, e.refreshGen, e.jwtIssuer, e.pendingIssuer, e.audit, e.log, provider, externalID, email, callerIP, userAgent)
 }
 
 // LinkOAuthIdentity attaches a confirmed external identity to an
@@ -356,5 +356,34 @@ func CompleteMagicLink(ctx context.Context, e *Engine, rawToken, callerIP, userA
 	if e.magicLinkSender == nil {
 		return Tokens{}, ErrMagicLinkNotConfigured
 	}
-	return auth.CompleteMagicLink(ctx, e.users, e.sessions, e.verifications, e.totp, e.webauthn, e.ids, e.refreshGen, e.jwtIssuer, e.pendingIssuer, e.audit, e.log, rawToken, callerIP, userAgent)
+	return auth.CompleteMagicLink(ctx, e.users, e.sessions, e.verifications, e.totp, e.webauthn, e.recoveryCodes, e.ids, e.refreshGen, e.jwtIssuer, e.pendingIssuer, e.audit, e.log, rawToken, callerIP, userAgent)
+}
+
+// ErrRecoveryCodesNotConfigured is returned by GenerateRecoveryCodes
+// and CompleteLoginWithRecoveryCode if the Engine was built without
+// Config.RecoveryCodes set.
+var ErrRecoveryCodesNotConfigured = errors.New("cryden: recovery codes require Config.RecoveryCodes to be set")
+
+// GenerateRecoveryCodes creates a fresh batch of 10 single-use
+// fallback codes for an already-authenticated user, replacing any
+// existing batch. The raw codes are returned exactly once — show them
+// to the user immediately, the engine can never retrieve them again
+// afterward. Requires the account to already have a confirmed TOTP
+// secret or a registered passkey.
+func GenerateRecoveryCodes(ctx context.Context, e *Engine, userID string) ([]string, error) {
+	if e.recoveryCodes == nil {
+		return nil, ErrRecoveryCodesNotConfigured
+	}
+	return auth.GenerateRecoveryCodes(ctx, e.totp, e.webauthn, e.recoveryCodes, e.audit, e.log, userID)
+}
+
+// CompleteLoginWithRecoveryCode finishes a login that Login (or
+// magic-link/OAuth login) paused with *auth.ErrSecondFactorRequired,
+// using one of the account's recovery codes instead of TOTP/a
+// passkey. Each code works exactly once.
+func CompleteLoginWithRecoveryCode(ctx context.Context, e *Engine, pendingToken, code, callerIP, userAgent string) (Tokens, error) {
+	if e.recoveryCodes == nil {
+		return Tokens{}, ErrRecoveryCodesNotConfigured
+	}
+	return auth.CompleteLoginWithRecoveryCode(ctx, e.users, e.sessions, e.recoveryCodes, e.ids, e.refreshGen, e.jwtIssuer, e.pendingIssuer, e.audit, e.log, pendingToken, code, callerIP, userAgent)
 }
