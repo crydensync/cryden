@@ -45,20 +45,31 @@ func (e *ErrOAuthEmailConflict) Error() string {
 // identity another user already claimed.
 var ErrOAuthIdentityAlreadyLinked = errors.New("auth: this provider account is already linked to a different user")
 
-// ErrTOTPRequired is returned by Login when the account has a
-// confirmed TOTP secret — a correct password is no longer sufficient
-// on its own. PendingToken must be presented to CompleteLoginWithTOTP
-// together with the user's current code. It is NOT a valid access or
-// refresh token and proves nothing beyond "this caller already
+// ErrSecondFactorRequired is returned by Login when the account has
+// at least one confirmed second-factor method enrolled (TOTP,
+// WebAuthn/passkey, or both) — a correct password is no longer
+// sufficient on its own. PendingToken must be presented to whichever
+// Complete* function matches one of Methods. It is NOT a valid access
+// or refresh token and proves nothing beyond "this caller already
 // supplied a correct password for this user." Deliberately a struct
 // type (not a plain sentinel), same reasoning as
 // ErrOAuthEmailConflict — callers use errors.As to retrieve it.
-type ErrTOTPRequired struct {
+//
+// Renamed from the TOTP-only ErrTOTPRequired once WebAuthn/passkeys
+// needed to gate login the same way — unifying under one method-
+// agnostic pause state instead of a separate error per method the
+// account might have enrolled.
+type ErrSecondFactorRequired struct {
 	PendingToken string
+	// Methods lists which second-factor methods this account has
+	// confirmed and enrolled — e.g. []string{"totp"},
+	// []string{"webauthn"}, or both. The caller decides which to
+	// prompt for (or offers a choice) based on this list.
+	Methods []string
 }
 
-func (e *ErrTOTPRequired) Error() string {
-	return "auth: TOTP code required to complete login"
+func (e *ErrSecondFactorRequired) Error() string {
+	return "auth: a second factor is required to complete login"
 }
 
 var (
@@ -72,10 +83,24 @@ var (
 	// deliberately not differentiated further than that, same
 	// enumeration-avoidance reasoning as ErrInvalidCredentials.
 	ErrInvalidTOTPCode = errors.New("auth: invalid or expired TOTP code")
-	// ErrInvalidPendingLogin is returned by CompleteLoginWithTOTP when
-	// pendingToken itself fails verification (expired, tampered, or
-	// not a pending-login token at all) — distinct from
-	// ErrInvalidTOTPCode, which covers a wrong code against an
-	// otherwise-valid pending login.
+	// ErrInvalidPendingLogin is returned by CompleteLoginWithTOTP or
+	// CompleteLoginWithWebAuthn when pendingToken itself fails
+	// verification (expired, tampered, or not a pending-login token
+	// at all) — distinct from ErrInvalidTOTPCode/ErrInvalidWebAuthnResponse,
+	// which cover a wrong code/response against an otherwise-valid
+	// pending login.
 	ErrInvalidPendingLogin = errors.New("auth: login session expired or invalid, please log in again")
+	// ErrNoPasskeysEnrolled is returned by BeginWebAuthnLogin if the
+	// account has no registered passkeys at all.
+	ErrNoPasskeysEnrolled = errors.New("auth: no passkeys are registered for this account")
+	// ErrInvalidWebAuthnResponse covers a failed ceremony verification
+	// (bad signature, origin mismatch, stale/replayed challenge, or a
+	// non-advancing signature counter suggesting a cloned
+	// authenticator) — deliberately not differentiated further, same
+	// enumeration-avoidance reasoning as ErrInvalidTOTPCode.
+	ErrInvalidWebAuthnResponse = errors.New("auth: invalid or expired passkey response")
+	// ErrInvalidCeremonyToken is returned when the encrypted ceremony
+	// state handed back to FinishRegisterPasskey/CompleteLoginWithWebAuthn
+	// fails to decrypt or has been tampered with.
+	ErrInvalidCeremonyToken = errors.New("auth: passkey ceremony expired or invalid, please try again")
 )

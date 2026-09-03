@@ -15,11 +15,14 @@ import (
 // token pair). callerIP and userAgent are required, caller-supplied —
 // never inferred inside the engine.
 //
-// totpStore and pendingIssuer are optional (nil if Config.TOTP isn't
-// set). If the account has a confirmed TOTP secret, Login does not
-// issue tokens directly — it returns *ErrTOTPRequired carrying a
-// short-lived pending token; the caller must then call
-// CompleteLoginWithTOTP with that token plus a code.
+// totpStore and webauthnStore are optional (nil if not configured).
+// If the account has any confirmed second factor — a confirmed TOTP
+// secret, one or more registered passkeys, or both — Login does not
+// issue tokens directly. It returns *ErrSecondFactorRequired carrying
+// a short-lived pending token and the list of enrolled methods; the
+// caller completes login via CompleteLoginWithTOTP or
+// BeginWebAuthnLogin/CompleteLoginWithWebAuthn depending on which
+// method the account has and the user picks.
 //
 // lockoutThreshold and lockoutDuration configure account lockout: after
 // lockoutThreshold consecutive failed attempts, the account is locked
@@ -30,6 +33,7 @@ func Login(
 	users store.UserStore,
 	sessions store.SessionStore,
 	totpStore store.TOTPStore,
+	webauthnStore store.WebAuthnCredentialStore,
 	hasher security.Hasher,
 	ids security.IDGenerator,
 	refreshGen token.TokenGenerator,
@@ -103,19 +107,29 @@ func Login(
 		log.Error("login: reset failed-attempts error", map[string]string{"error": err.Error(), "user_id": user.ID})
 	}
 
-	// Password verified. If this account has a confirmed TOTP secret,
-	// pause here instead of issuing tokens — a correct password alone
-	// is no longer sufficient to complete login.
+	// Password verified. Collect any confirmed second-factor methods
+	// this account has enrolled — if there are any, pause here
+	// instead of issuing tokens directly.
+	var methods []string
 	if totpStore != nil {
 		secretRec, err := totpStore.GetByUserID(ctx, user.ID)
 		if err == nil && secretRec.ConfirmedAt != nil {
-			pendingToken, issueErr := pendingIssuer.Issue(user.ID)
-			if issueErr != nil {
-				return Tokens{}, issueErr
-			}
-			log.Info("login: password verified, awaiting TOTP", map[string]string{"user_id": user.ID})
-			return Tokens{}, &ErrTOTPRequired{PendingToken: pendingToken}
+			methods = append(methods, "totp")
 		}
+	}
+	if webauthnStore != nil {
+		creds, err := webauthnStore.ListByUser(ctx, user.ID)
+		if err == nil && len(creds) > 0 {
+			methods = append(methods, "webauthn")
+		}
+	}
+	if len(methods) > 0 {
+		pendingToken, issueErr := pendingIssuer.Issue(user.ID)
+		if issueErr != nil {
+			return Tokens{}, issueErr
+		}
+		log.Info("login: password verified, awaiting second factor", map[string]string{"user_id": user.ID})
+		return Tokens{}, &ErrSecondFactorRequired{PendingToken: pendingToken, Methods: methods}
 	}
 
 	return finishLogin(ctx, sessions, ids, refreshGen, jwtIssuer, audit, log, user, callerIP, userAgent, "")
