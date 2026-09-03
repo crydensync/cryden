@@ -31,7 +31,9 @@ func TestLogin_Success(t *testing.T) {
 	hash, _ := hasher.Hash("correct-password")
 	users.Create(ctx, storeUser("user-1", "proguy@example.com", hash))
 
-	tokens, err := Login(ctx, users, sessions, hasher, ids, refreshGen, jwtIssuer, limiter, audit, log,
+	// totpStore/pendingIssuer are nil — TOTP not configured for this
+	// engine, Login must behave exactly as it did before TOTP existed.
+	tokens, err := Login(ctx, users, sessions, nil, hasher, ids, refreshGen, jwtIssuer, nil, limiter, audit, log,
 		"proguy@example.com", "correct-password", "1.2.3.4", "test-agent", 5, time.Minute)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -49,7 +51,7 @@ func TestLogin_WrongPasswordRejected(t *testing.T) {
 	hash, _ := hasher.Hash("correct-password")
 	users.Create(ctx, storeUser("user-1", "proguy@example.com", hash))
 
-	_, err := Login(ctx, users, sessions, hasher, ids, refreshGen, jwtIssuer, limiter, audit, log,
+	_, err := Login(ctx, users, sessions, nil, hasher, ids, refreshGen, jwtIssuer, nil, limiter, audit, log,
 		"proguy@example.com", "wrong-password", "1.2.3.4", "test-agent", 5, time.Minute)
 	if err != ErrInvalidCredentials {
 		t.Errorf("expected ErrInvalidCredentials, got %v", err)
@@ -63,9 +65,48 @@ func TestLogin_NonexistentUserRejectedWithSameError(t *testing.T) {
 	log := testLogger{}
 	ctx := context.Background()
 
-	_, err := Login(ctx, users, sessions, hasher, ids, refreshGen, jwtIssuer, limiter, audit, log,
+	_, err := Login(ctx, users, sessions, nil, hasher, ids, refreshGen, jwtIssuer, nil, limiter, audit, log,
 		"nobody@example.com", "any-password", "1.2.3.4", "test-agent", 5, time.Minute)
 	if err != ErrInvalidCredentials {
 		t.Errorf("expected ErrInvalidCredentials (same as wrong password), got %v", err)
+	}
+}
+
+func TestLogin_NonexistentUserTimingMatchesWrongPassword(t *testing.T) {
+	// Regression test for the timing side-channel: before the fix,
+	// the nonexistent-user path returned before ever calling
+	// hasher.Compare, making it measurably faster than a real
+	// wrong-password attempt and letting an attacker enumerate
+	// registered emails by response time alone even though the
+	// returned error was already identical. A real cost-4 bcrypt
+	// hash still takes single-digit milliseconds, so both paths
+	// should land in the same rough band, not orders of magnitude
+	// apart. This is a coarse smoke test, not a precise timing
+	// analysis — its job is to catch a future regression that removes
+	// the dummy hasher.Hash call entirely, not to certify
+	// constant-time behavior.
+	users, sessions, audit, hasher, ids, refreshGen, jwtIssuer, limiter := newLoginTestDeps(t)
+	log := testLogger{}
+	ctx := context.Background()
+
+	hash, _ := hasher.Hash("correct-password")
+	users.Create(ctx, storeUser("user-1", "proguy@example.com", hash))
+
+	start := time.Now()
+	Login(ctx, users, sessions, nil, hasher, ids, refreshGen, jwtIssuer, nil, limiter, audit, log,
+		"proguy@example.com", "wrong-password", "1.2.3.4", "test-agent", 5, time.Minute)
+	wrongPasswordDuration := time.Since(start)
+
+	start = time.Now()
+	Login(ctx, users, sessions, nil, hasher, ids, refreshGen, jwtIssuer, nil, limiter, audit, log,
+		"nobody@example.com", "any-password", "1.2.3.4", "test-agent", 5, time.Minute)
+	nonexistentUserDuration := time.Since(start)
+
+	// Nonexistent-user path should never be dramatically faster —
+	// allow a generous 2x margin either direction for test-runner
+	// noise, since this isn't a precision timing measurement.
+	ratio := float64(nonexistentUserDuration) / float64(wrongPasswordDuration)
+	if ratio < 0.5 {
+		t.Errorf("nonexistent-user login returned %v, wrong-password returned %v (ratio %.2f) — the dummy hash may not be running", nonexistentUserDuration, wrongPasswordDuration, ratio)
 	}
 }

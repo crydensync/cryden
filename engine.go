@@ -20,12 +20,17 @@ type Engine struct {
 	verifications store.VerificationStore
 	emailSender   notify.EmailSender
 	oauth         store.OAuthStore
+	totp          store.TOTPStore
 
 	hasher           security.Hasher
 	ids              security.IDGenerator
 	rateLimiter      security.RateLimiter
 	refreshGen       token.TokenGenerator
 	jwtIssuer        *token.JWTIssuer
+	pendingIssuer    *token.MFAPendingIssuer
+	totpGen          security.TOTPGenerator
+	encryptor        security.Encryptor
+	totpIssuerName   string
 	log              logger.Logger
 	lockoutThreshold int
 	lockoutDuration  time.Duration
@@ -55,6 +60,24 @@ func New(cfg Config) (*Engine, error) {
 		return nil, err
 	}
 
+	// TOTP-related dependencies are only constructed if Config.TOTP
+	// is set — otherwise they stay nil, and Login/the TOTP facade
+	// functions treat that as "feature not configured."
+	var pendingIssuer *token.MFAPendingIssuer
+	var encryptor security.Encryptor
+	var totpGen security.TOTPGenerator
+	if cfg.TOTP != nil {
+		pendingIssuer, err = token.NewMFAPendingIssuer(cfg.JWTSecret)
+		if err != nil {
+			return nil, err
+		}
+		encryptor, err = security.NewAESGCMEncryptor(cfg.EncryptionKey)
+		if err != nil {
+			return nil, err
+		}
+		totpGen = security.NewPquernaTOTPGenerator()
+	}
+
 	return &Engine{
 		users:            cfg.Users,
 		sessions:         cfg.Sessions,
@@ -62,11 +85,16 @@ func New(cfg Config) (*Engine, error) {
 		verifications:    cfg.Verifications,
 		emailSender:      cfg.EmailSender,
 		oauth:            cfg.OAuth,
+		totp:             cfg.TOTP,
 		hasher:           hasher,
 		ids:              security.NewUUIDv7Generator(),
 		rateLimiter:      security.NewInMemoryRateLimiter(cfg.RateLimitAttempts, cfg.RateLimitWindow),
 		refreshGen:       refreshGen,
 		jwtIssuer:        jwtIssuer,
+		pendingIssuer:    pendingIssuer,
+		totpGen:          totpGen,
+		encryptor:        encryptor,
+		totpIssuerName:   cfg.TOTPIssuerName,
 		log:              cfg.Logger,
 		lockoutThreshold: cfg.LockoutThreshold,
 		lockoutDuration:  cfg.LockoutDuration,

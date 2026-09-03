@@ -138,6 +138,45 @@ err := cryden.LinkOAuthIdentity(ctx, engine, userID, "google", externalID, email
 
 `userID` must come from an already-verified session — never trust an email alone to authorize a link. Calling either function without `Config.OAuth` set returns `cryden.ErrOAuthNotConfigured`.
 
+## Two-factor authentication (TOTP)
+
+Requires two additional `Config` fields:
+
+```go
+engine, err := cryden.New(cryden.Config{
+	// ...required fields...
+	TOTP:           postgres.NewTOTPStore(db), // or memory.NewTOTPStore()
+	EncryptionKey:  os.Getenv("ENCRYPTION_KEY"), // separate secret from JWTSecret
+	TOTPIssuerName: "YourApp", // shown in the user's authenticator app
+})
+```
+
+`EncryptionKey` is required whenever `TOTP` is set — a TOTP secret has to be recoverable in plaintext to validate codes against it, so (unlike passwords and tokens) it's encrypted rather than hashed. Use a different value from `JWTSecret`, not the same one twice.
+
+Enrollment is a two-step confirm flow — a secret never gates login until the user proves they've actually captured it:
+
+```go
+otpauthURL, err := cryden.EnrollTOTP(ctx, engine, userID)
+// render otpauthURL as a QR code for the user to scan
+
+err = cryden.ConfirmTOTP(ctx, engine, userID, codeFromApp)
+// only after this succeeds does the account require a code to log in
+```
+
+Once confirmed, `Login` no longer issues tokens directly for that account — it returns `*auth.ErrTOTPRequired` (retrievable via `errors.As`) carrying a short-lived pending token:
+
+```go
+tokens, err := cryden.Login(ctx, engine, email, password, callerIP, userAgent)
+
+var totpRequired *auth.ErrTOTPRequired
+if errors.As(err, &totpRequired) {
+	// prompt for a code, then:
+	tokens, err = cryden.CompleteLoginWithTOTP(ctx, engine, totpRequired.PendingToken, code, callerIP, userAgent)
+}
+```
+
+The pending token expires after 5 minutes and is only ever valid for completing that one login — it's a distinct token type from an access token, not just a permissive one. `DisableTOTP(ctx, engine, userID, currentPassword)` removes 2FA from an account and requires the current password as re-confirmation. Calling any TOTP function without `Config.TOTP` set returns `cryden.ErrTOTPNotConfigured`.
+
 ## AI-assisted admin queries (library support only)
 
 The `ai` subpackage provides the safety machinery for natural-language admin tooling — an allowlisted `QueryIntent` type, `validateIntent`, and `ExecuteQuery` — plus `store/postgres.SafeQueryStore`, a read-only query executor. This is a foundation for tools like `csax`'s CLI to build on, not a feature you call directly in application code. An LLM's output is treated as untrusted data to validate against a strict allowlist, never as SQL to execute — and the actual DB connection passed to `SafeQueryStore` must be opened with a read-only Postgres role, since that's the real safety boundary, not just the allowlist check. `ai.LLMProvider` ships zero implementations; bring your own (OpenAI, Anthropic, OpenRouter, a local model).
@@ -146,6 +185,7 @@ The `ai` subpackage provides the safety machinery for natural-language admin too
 
 - Signup, login, logout (single device + all devices)
 - OAuth login/signup (Google, GitHub, or any provider) with explicit, non-auto-linking account collision handling — see [OAuth](#oauth-google-github-or-any-provider)
+- Two-factor authentication (TOTP) with encrypted-at-rest secrets and a confirm-before-enforce enrollment flow — see [Two-factor authentication](#two-factor-authentication-totp)
 - JWT access tokens + rotating opaque refresh tokens with theft/reuse detection
 - Session listing and revocation
 - Change password (requires current password, revokes all other sessions)
@@ -160,7 +200,7 @@ The `ai` subpackage provides the safety machinery for natural-language admin too
 
 ## What's not in v2 (yet)
 
-CLI, HTTP API, and language SDKs are separate repositories that wrap this engine — this repo is the core library only. MFA, magic links, SMS OTP, WebAuthn, SAML, and other advanced auth methods are planned for later releases.
+CLI, HTTP API, and language SDKs are separate repositories that wrap this engine — this repo is the core library only. Magic links, SMS OTP, WebAuthn, SAML, and other advanced auth methods are planned for later releases.
 
 ## License
 
