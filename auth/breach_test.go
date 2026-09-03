@@ -29,7 +29,7 @@ func TestSignUp_RejectsBreachedPassword(t *testing.T) {
 	ctx := context.Background()
 	checker := &fakeBreachChecker{breached: true}
 
-	_, err := SignUp(ctx, users, hasher, ids, limiter, checker, audit, log, "proguy@example.com", "password123", "1.2.3.4")
+	_, err := SignUp(ctx, users, hasher, ids, limiter, checker, audit, log, security.PasswordPolicy{}, "proguy@example.com", "password123", "1.2.3.4")
 	if err != ErrPasswordBreached {
 		t.Errorf("expected ErrPasswordBreached, got %v", err)
 	}
@@ -43,7 +43,7 @@ func TestSignUp_BreachCheckerErrorFailsOpen(t *testing.T) {
 	ctx := context.Background()
 	checker := &fakeBreachChecker{err: errors.New("simulated HIBP outage")}
 
-	_, err := SignUp(ctx, users, hasher, ids, limiter, checker, audit, log, "proguy@example.com", "password123", "1.2.3.4")
+	_, err := SignUp(ctx, users, hasher, ids, limiter, checker, audit, log, security.PasswordPolicy{}, "proguy@example.com", "password123", "1.2.3.4")
 	if err != nil {
 		t.Fatalf("expected signup to succeed (fail open) when the breach checker errors, got %v", err)
 	}
@@ -61,7 +61,7 @@ func TestChangePassword_RejectsBreachedNewPassword(t *testing.T) {
 	hash, _ := hasher.Hash("old-password")
 	users.Create(ctx, storeUser("user-1", "raymondproguy@dev.com", hash))
 
-	err := ChangePassword(ctx, users, sessions, hasher, checker, audit, log, "user-1", "old-password", "password123")
+	err := ChangePassword(ctx, users, sessions, hasher, checker, audit, log, security.PasswordPolicy{}, "user-1", "old-password", "password123")
 	if err != ErrPasswordBreached {
 		t.Errorf("expected ErrPasswordBreached, got %v", err)
 	}
@@ -81,7 +81,7 @@ func TestChangePassword_WrongCurrentPasswordCheckedBeforeBreach(t *testing.T) {
 	hash, _ := hasher.Hash("old-password")
 	users.Create(ctx, storeUser("user-1", "raymondproguy@dev.com", hash))
 
-	err := ChangePassword(ctx, users, sessions, hasher, checker, audit, log, "user-1", "totally-wrong", "password123")
+	err := ChangePassword(ctx, users, sessions, hasher, checker, audit, log, security.PasswordPolicy{}, "user-1", "totally-wrong", "password123")
 	if err != ErrInvalidCredentials {
 		t.Errorf("expected ErrInvalidCredentials (checked before breach check), got %v", err)
 	}
@@ -95,7 +95,7 @@ func TestSignUp_BreachRejectionIsAudited(t *testing.T) {
 	ctx := context.Background()
 	checker := &fakeBreachChecker{breached: true}
 
-	SignUp(ctx, users, hasher, ids, limiter, checker, audit, log, "proguy@example.com", "password123", "1.2.3.4")
+	SignUp(ctx, users, hasher, ids, limiter, checker, audit, log, security.PasswordPolicy{}, "proguy@example.com", "password123", "1.2.3.4")
 
 	events, err := audit.SearchByType(ctx, store.EventPasswordBreachRejected, 10)
 	if err != nil {
