@@ -22,7 +22,7 @@ type Tokens = auth.Tokens
 // SignUp creates a new user. callerIP is required — used only for
 // rate limiting and audit metadata, never inferred by the engine.
 func SignUp(ctx context.Context, e *Engine, email, password, callerIP string) (store.User, error) {
-	return auth.SignUp(ctx, e.users, e.hasher, e.ids, e.rateLimiter, e.breachChecker, e.audit, e.log, email, password, callerIP)
+	return auth.SignUp(ctx, e.users, e.hasher, e.ids, e.rateLimiter, e.breachChecker, e.audit, e.log, e.passwordPolicy, email, password, callerIP)
 }
 
 // Login authenticates a user and issues a new session. callerIP and
@@ -39,7 +39,7 @@ func Login(ctx context.Context, e *Engine, email, password, callerIP, userAgent 
 // ChangePassword requires the caller's current password as
 // re-confirmation, and revokes all sessions on success.
 func ChangePassword(ctx context.Context, e *Engine, userID, currentPassword, newPassword string) error {
-	return auth.ChangePassword(ctx, e.users, e.sessions, e.hasher, e.breachChecker, e.audit, e.log, userID, currentPassword, newPassword)
+	return auth.ChangePassword(ctx, e.users, e.sessions, e.hasher, e.breachChecker, e.audit, e.log, e.passwordPolicy, userID, currentPassword, newPassword)
 }
 
 // DeleteAccount requires the caller's current password as
