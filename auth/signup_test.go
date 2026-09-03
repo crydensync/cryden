@@ -24,7 +24,7 @@ func TestSignUp_Success(t *testing.T) {
 	users, audit, log, hasher, ids, limiter := newTestDeps()
 	ctx := context.Background()
 
-	user, err := SignUp(ctx, users, hasher, ids, limiter, nil, audit, log, "proguy@example.com", "pw", "1.2.3.4")
+	user, err := SignUp(ctx, users, hasher, ids, limiter, nil, audit, log, security.PasswordPolicy{}, "proguy@example.com", "pw", "1.2.3.4")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -40,12 +40,12 @@ func TestSignUp_DuplicateEmailRejected(t *testing.T) {
 	users, audit, log, hasher, ids, limiter := newTestDeps()
 	ctx := context.Background()
 
-	_, err := SignUp(ctx, users, hasher, ids, limiter, nil, audit, log, "proguy@example.com", "pw", "1.2.3.4")
+	_, err := SignUp(ctx, users, hasher, ids, limiter, nil, audit, log, security.PasswordPolicy{}, "proguy@example.com", "pw", "1.2.3.4")
 	if err != nil {
 		t.Fatalf("unexpected error on first signup: %v", err)
 	}
 
-	_, err = SignUp(ctx, users, hasher, ids, limiter, nil, audit, log, "proguy@example.com", "different-pw", "1.2.3.4")
+	_, err = SignUp(ctx, users, hasher, ids, limiter, nil, audit, log, security.PasswordPolicy{}, "proguy@example.com", "different-pw", "1.2.3.4")
 	if err != ErrUserExists {
 		t.Errorf("expected ErrUserExists, got %v", err)
 	}
@@ -56,12 +56,12 @@ func TestSignUp_RateLimited(t *testing.T) {
 	limiter := security.NewInMemoryRateLimiter(1, time.Minute)
 	ctx := context.Background()
 
-	_, err := SignUp(ctx, users, hasher, ids, limiter, nil, audit, log, "a@example.com", "pw", "1.2.3.4")
+	_, err := SignUp(ctx, users, hasher, ids, limiter, nil, audit, log, security.PasswordPolicy{}, "a@example.com", "pw", "1.2.3.4")
 	if err != nil {
 		t.Fatalf("expected first signup to succeed: %v", err)
 	}
 
-	_, err = SignUp(ctx, users, hasher, ids, limiter, nil, audit, log, "b@example.com", "pw", "1.2.3.4")
+	_, err = SignUp(ctx, users, hasher, ids, limiter, nil, audit, log, security.PasswordPolicy{}, "b@example.com", "pw", "1.2.3.4")
 	if err != ErrRateLimited {
 		t.Errorf("expected ErrRateLimited for second signup from same IP, got %v", err)
 	}

@@ -21,7 +21,7 @@ func TestChangePassword_Success(t *testing.T) {
 	users.Create(ctx, storeUser("user-1", "proguy@example.com", hash))
 	sessions.Create(ctx, store.Session{ID: "s1", FamilyID: "s1", UserID: "user-1"})
 
-	err := ChangePassword(ctx, users, sessions, hasher, nil, audit, log, "user-1", "old-password", "new-password")
+	err := ChangePassword(ctx, users, sessions, hasher, nil, audit, log, security.PasswordPolicy{}, "user-1", "old-password", "new-password")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestChangePassword_RejectsWrongCurrentPassword(t *testing.T) {
 	hash, _ := hasher.Hash("old-password")
 	users.Create(ctx, storeUser("user-1", "proguy@example.com", hash))
 
-	err := ChangePassword(ctx, users, sessions, hasher, nil, audit, log, "user-1", "totally-wrong", "new-password")
+	err := ChangePassword(ctx, users, sessions, hasher, nil, audit, log, security.PasswordPolicy{}, "user-1", "totally-wrong", "new-password")
 	if err != ErrInvalidCredentials {
 		t.Errorf("expected ErrInvalidCredentials, got %v", err)
 	}

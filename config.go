@@ -83,6 +83,14 @@ type Config struct {
 	// ErrRecoveryCodesNotConfigured and Login never advertises
 	// "recovery_code" as an available second-factor method.
 	RecoveryCodes store.RecoveryCodeStore
+	// PasswordPolicy is checked on every SignUp/ChangePassword. Unlike
+	// TOTP/WebAuthn, this has no "unconfigured means off" state —
+	// leaving it as the entire zero value (security.PasswordPolicy{})
+	// applies security.DefaultPasswordPolicy instead. Setting even one
+	// field (e.g. just MinLength) counts as a real custom policy and
+	// is used as-is — only the untouched, all-zero struct triggers the
+	// default.
+	PasswordPolicy security.PasswordPolicy
 	// BreachedPasswordChecker is optional — only checked if set, on
 	// SignUp/ChangePassword. Ships no implementation (see the type's
 	// own doc comment); a checker error fails open rather than
@@ -156,6 +164,14 @@ func (c *Config) applyDefaults() {
 	}
 	if c.TOTP != nil && c.TOTPIssuerName == "" {
 		c.TOTPIssuerName = "Cryden"
+	}
+	// A single field being zero (e.g. MaxLength left unset while
+	// MinLength/character requirements ARE set) is a real partial
+	// policy, not an unconfigured one — comparing the whole struct
+	// against its zero value is the only check that doesn't clobber a
+	// custom policy just because one field was left at its default.
+	if c.PasswordPolicy == (security.PasswordPolicy{}) {
+		c.PasswordPolicy = security.DefaultPasswordPolicy
 	}
 	if c.Logger == nil {
 		c.Logger = logger.NewConsoleJSONLogger()
