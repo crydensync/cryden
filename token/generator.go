@@ -3,6 +3,7 @@ package token
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"io"
 )
 
 // TokenGenerator defines generation of opaque, cryptographically random
@@ -21,6 +22,17 @@ type CryptoRandTokenGenerator struct {
 	// ByteLength is the number of random bytes generated per token.
 	// 32 bytes (256 bits) is the standard baseline for opaque tokens.
 	ByteLength int
+	// randReader defaults to crypto/rand.Reader (set by
+	// NewCryptoRandTokenGenerator) and is never exposed publicly.
+	// Deliberately injectable rather than calling crypto/rand.Read
+	// directly, so a failure path can be tested by swapping this
+	// field on a same-package instance — mutating the real global
+	// crypto/rand.Reader instead (the previous approach) is not
+	// portable: on at least one real platform, a failed read through
+	// the actual global triggers the Go runtime's own unrecoverable
+	// fatal-error path instead of returning a normal error, crashing
+	// the whole test binary rather than failing one test.
+	randReader io.Reader
 }
 
 // NewCryptoRandTokenGenerator constructs a generator. byteLength must
@@ -31,12 +43,12 @@ func NewCryptoRandTokenGenerator(byteLength int) (*CryptoRandTokenGenerator, err
 		// Reject anything below 128 bits — too weak for a session token.
 		return nil, ErrTokenByteLengthTooShort
 	}
-	return &CryptoRandTokenGenerator{ByteLength: byteLength}, nil
+	return &CryptoRandTokenGenerator{ByteLength: byteLength, randReader: rand.Reader}, nil
 }
 
 func (g *CryptoRandTokenGenerator) New() (string, error) {
 	buf := make([]byte, g.ByteLength)
-	if _, err := rand.Read(buf); err != nil {
+	if _, err := io.ReadFull(g.randReader, buf); err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(buf), nil
