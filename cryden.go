@@ -5,7 +5,9 @@ package cryden
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
+	"time"
 
 	"github.com/crydensync/cryden/v2/auth"
 	"github.com/crydensync/cryden/v2/session"
@@ -24,13 +26,14 @@ func SignUp(ctx context.Context, e *Engine, email, password, callerIP string) (s
 }
 
 // Login authenticates a user and issues a new session. callerIP and
-// userAgent are required, caller-supplied. If the account has TOTP
-// (2FA) enabled, no tokens are issued yet — Login returns
-// *auth.ErrTOTPRequired (retrievable via errors.As) carrying a
-// short-lived pending token; call CompleteLoginWithTOTP with that
-// token plus a code to finish.
+// userAgent are required, caller-supplied. If the account has any
+// confirmed second factor (TOTP, a registered passkey, or both), no
+// tokens are issued yet — Login returns *auth.ErrSecondFactorRequired
+// (retrievable via errors.As) carrying a short-lived pending token
+// and the list of enrolled methods; complete via CompleteLoginWithTOTP
+// or BeginWebAuthnLogin/CompleteLoginWithWebAuthn accordingly.
 func Login(ctx context.Context, e *Engine, email, password, callerIP, userAgent string) (Tokens, error) {
-	return auth.Login(ctx, e.users, e.sessions, e.totp, e.hasher, e.ids, e.refreshGen, e.jwtIssuer, e.pendingIssuer, e.rateLimiter, e.audit, e.log, email, password, callerIP, userAgent, e.lockoutThreshold, e.lockoutDuration)
+	return auth.Login(ctx, e.users, e.sessions, e.totp, e.webauthn, e.hasher, e.ids, e.refreshGen, e.jwtIssuer, e.pendingIssuer, e.rateLimiter, e.audit, e.log, email, password, callerIP, userAgent, e.lockoutThreshold, e.lockoutDuration)
 }
 
 // ChangePassword requires the caller's current password as
@@ -222,7 +225,7 @@ func DisableTOTP(ctx context.Context, e *Engine, userID, currentPassword string)
 }
 
 // CompleteLoginWithTOTP finishes a login that Login paused with
-// *auth.ErrTOTPRequired (retrievable via errors.As). pendingToken is
+// *auth.ErrSecondFactorRequired (retrievable via errors.As). pendingToken is
 // the value from that error; code is the current value from the
 // user's authenticator app.
 func CompleteLoginWithTOTP(ctx context.Context, e *Engine, pendingToken, code, callerIP, userAgent string) (Tokens, error) {
@@ -230,4 +233,98 @@ func CompleteLoginWithTOTP(ctx context.Context, e *Engine, pendingToken, code, c
 		return Tokens{}, ErrTOTPNotConfigured
 	}
 	return auth.CompleteLoginWithTOTP(ctx, e.users, e.sessions, e.totp, e.totpGen, e.encryptor, e.ids, e.refreshGen, e.jwtIssuer, e.pendingIssuer, e.audit, e.log, pendingToken, code, callerIP, userAgent)
+}
+
+// ErrWebAuthnNotConfigured is returned by every passkey facade
+// function below if the Engine was built without Config.WebAuthn set.
+var ErrWebAuthnNotConfigured = errors.New("cryden: WebAuthn requires Config.WebAuthn (and its RP fields) to be set")
+
+// Passkey is a public, storage-detail-free view of one registered
+// passkey, for listing.
+type Passkey struct {
+	// CredentialID is base64url-encoded, matching how credential IDs
+	// travel in the WebAuthn spec itself — pass it back as-is to
+	// DeletePasskey.
+	CredentialID string
+	Nickname     string
+	CreatedAt    time.Time
+	LastUsedAt   *time.Time
+}
+
+// BeginRegisterPasskey starts registering a new passkey for an
+// already-authenticated user. creationOptionsJSON is the raw JSON to
+// forward to the browser's navigator.credentials.create() call;
+// ceremonyToken must be passed back unmodified to FinishRegisterPasskey.
+func BeginRegisterPasskey(ctx context.Context, e *Engine, userID string) (creationOptionsJSON []byte, ceremonyToken string, err error) {
+	if e.webauthn == nil {
+		return nil, "", ErrWebAuthnNotConfigured
+	}
+	return auth.BeginRegisterPasskey(ctx, e.users, e.webauthn, e.webauthnProvider, e.encryptor, userID)
+}
+
+// FinishRegisterPasskey completes registration. clientResponseJSON is
+// the raw JSON body from navigator.credentials.create(); nickname is
+// an optional user-supplied label ("MacBook Touch ID").
+func FinishRegisterPasskey(ctx context.Context, e *Engine, userID, ceremonyToken string, clientResponseJSON []byte, nickname string) error {
+	if e.webauthn == nil {
+		return ErrWebAuthnNotConfigured
+	}
+	return auth.FinishRegisterPasskey(ctx, e.users, e.webauthn, e.webauthnProvider, e.encryptor, e.ids, e.audit, e.log, userID, ceremonyToken, clientResponseJSON, nickname)
+}
+
+// ListPasskeys returns every passkey registered to userID.
+func ListPasskeys(ctx context.Context, e *Engine, userID string) ([]Passkey, error) {
+	if e.webauthn == nil {
+		return nil, ErrWebAuthnNotConfigured
+	}
+	creds, err := auth.ListPasskeys(ctx, e.webauthn, userID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Passkey, 0, len(creds))
+	for _, c := range creds {
+		out = append(out, Passkey{
+			CredentialID: base64.URLEncoding.EncodeToString(c.CredentialID),
+			Nickname:     c.Nickname,
+			CreatedAt:    c.CreatedAt,
+			LastUsedAt:   c.LastUsedAt,
+		})
+	}
+	return out, nil
+}
+
+// DeletePasskey removes one passkey, identified by the CredentialID
+// from ListPasskeys. Requires the current password as re-confirmation.
+func DeletePasskey(ctx context.Context, e *Engine, userID, credentialID, currentPassword string) error {
+	if e.webauthn == nil {
+		return ErrWebAuthnNotConfigured
+	}
+	rawID, err := base64.URLEncoding.DecodeString(credentialID)
+	if err != nil {
+		return auth.ErrInvalidWebAuthnResponse
+	}
+	return auth.DeletePasskey(ctx, e.users, e.webauthn, e.hasher, e.audit, e.log, userID, rawID, currentPassword)
+}
+
+// BeginWebAuthnLogin starts the passkey half of a paused login.
+// pendingToken must be the value from a prior *auth.ErrSecondFactorRequired
+// whose Methods included "webauthn". assertionOptionsJSON is the raw
+// JSON to forward to navigator.credentials.get(); ceremonyToken must
+// be passed back unmodified to CompleteLoginWithWebAuthn.
+func BeginWebAuthnLogin(ctx context.Context, e *Engine, pendingToken string) (assertionOptionsJSON []byte, ceremonyToken string, err error) {
+	if e.webauthn == nil {
+		return nil, "", ErrWebAuthnNotConfigured
+	}
+	return auth.BeginWebAuthnLogin(ctx, e.users, e.webauthn, e.webauthnProvider, e.encryptor, e.pendingIssuer, pendingToken)
+}
+
+// CompleteLoginWithWebAuthn finishes a login that Login paused with
+// *auth.ErrSecondFactorRequired, via the passkey ceremony started by
+// BeginWebAuthnLogin. clientResponseJSON is the raw JSON body from
+// navigator.credentials.get().
+func CompleteLoginWithWebAuthn(ctx context.Context, e *Engine, pendingToken, ceremonyToken string, clientResponseJSON []byte, callerIP, userAgent string) (Tokens, error) {
+	if e.webauthn == nil {
+		return Tokens{}, ErrWebAuthnNotConfigured
+	}
+	return auth.CompleteLoginWithWebAuthn(ctx, e.users, e.sessions, e.webauthn, e.webauthnProvider, e.encryptor, e.ids, e.refreshGen, e.jwtIssuer, e.pendingIssuer, e.audit, e.log, pendingToken, ceremonyToken, clientResponseJSON, callerIP, userAgent)
 }

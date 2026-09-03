@@ -143,7 +143,7 @@ func DisableTOTP(
 }
 
 // CompleteLoginWithTOTP finishes a login that Login paused with
-// *ErrTOTPRequired. pendingToken proves a correct password was
+// *ErrSecondFactorRequired. pendingToken proves a correct password was
 // already presented for the user encoded inside it; code is the
 // current value from the user's authenticator app.
 func CompleteLoginWithTOTP(

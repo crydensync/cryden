@@ -21,6 +21,7 @@ type Engine struct {
 	emailSender   notify.EmailSender
 	oauth         store.OAuthStore
 	totp          store.TOTPStore
+	webauthn      store.WebAuthnCredentialStore
 
 	hasher           security.Hasher
 	ids              security.IDGenerator
@@ -31,6 +32,8 @@ type Engine struct {
 	totpGen          security.TOTPGenerator
 	encryptor        security.Encryptor
 	totpIssuerName   string
+	webauthnProvider security.WebAuthnProvider
+	webauthnRPID     string
 	log              logger.Logger
 	lockoutThreshold int
 	lockoutDuration  time.Duration
@@ -60,13 +63,18 @@ func New(cfg Config) (*Engine, error) {
 		return nil, err
 	}
 
-	// TOTP-related dependencies are only constructed if Config.TOTP
-	// is set — otherwise they stay nil, and Login/the TOTP facade
-	// functions treat that as "feature not configured."
+	// pendingIssuer and encryptor are shared infrastructure for BOTH
+	// second-factor methods: pendingIssuer gates Login the same way
+	// regardless of which method an account has, and encryptor is
+	// reused as-is to encrypt WebAuthn ceremony state the same way it
+	// encrypts TOTP secrets — one EncryptionKey, two consumers, no
+	// separate WebAuthn-specific secret to configure. Constructed if
+	// EITHER Config.TOTP or Config.WebAuthn is set; nil otherwise.
 	var pendingIssuer *token.MFAPendingIssuer
 	var encryptor security.Encryptor
 	var totpGen security.TOTPGenerator
-	if cfg.TOTP != nil {
+	var webauthnProvider security.WebAuthnProvider
+	if cfg.TOTP != nil || cfg.WebAuthn != nil {
 		pendingIssuer, err = token.NewMFAPendingIssuer(cfg.JWTSecret)
 		if err != nil {
 			return nil, err
@@ -75,7 +83,15 @@ func New(cfg Config) (*Engine, error) {
 		if err != nil {
 			return nil, err
 		}
+	}
+	if cfg.TOTP != nil {
 		totpGen = security.NewPquernaTOTPGenerator()
+	}
+	if cfg.WebAuthn != nil {
+		webauthnProvider, err = security.NewGoWebAuthnProvider(cfg.WebAuthnRPDisplayName, cfg.WebAuthnRPID, cfg.WebAuthnRPOrigins)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return &Engine{
@@ -86,6 +102,7 @@ func New(cfg Config) (*Engine, error) {
 		emailSender:      cfg.EmailSender,
 		oauth:            cfg.OAuth,
 		totp:             cfg.TOTP,
+		webauthn:         cfg.WebAuthn,
 		hasher:           hasher,
 		ids:              security.NewUUIDv7Generator(),
 		rateLimiter:      security.NewInMemoryRateLimiter(cfg.RateLimitAttempts, cfg.RateLimitWindow),
@@ -95,6 +112,8 @@ func New(cfg Config) (*Engine, error) {
 		totpGen:          totpGen,
 		encryptor:        encryptor,
 		totpIssuerName:   cfg.TOTPIssuerName,
+		webauthnProvider: webauthnProvider,
+		webauthnRPID:     cfg.WebAuthnRPID,
 		log:              cfg.Logger,
 		lockoutThreshold: cfg.LockoutThreshold,
 		lockoutDuration:  cfg.LockoutDuration,
