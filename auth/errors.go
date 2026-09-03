@@ -103,4 +103,8 @@ var (
 	// state handed back to FinishRegisterPasskey/CompleteLoginWithWebAuthn
 	// fails to decrypt or has been tampered with.
 	ErrInvalidCeremonyToken = errors.New("auth: passkey ceremony expired or invalid, please try again")
+	// ErrPasswordBreached is returned by SignUp/ChangePassword when a
+	// configured BreachedPasswordChecker confirms the password has
+	// appeared in a known data breach.
+	ErrPasswordBreached = errors.New("auth: this password has appeared in a known data breach and cannot be used")
 )

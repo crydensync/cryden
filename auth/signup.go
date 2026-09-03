@@ -10,12 +10,17 @@ import (
 
 // SignUp creates a new user. callerIP is required and used only as a
 // rate-limit key and audit metadata — the engine never infers it.
+//
+// breachChecker is optional (nil-safe). A breachChecker error (the
+// check service itself failing) fails open — it's logged, not treated
+// as a rejection; only a confirmed breach blocks the password.
 func SignUp(
 	ctx context.Context,
 	users store.UserStore,
 	hasher security.Hasher,
 	ids security.IDGenerator,
 	limiter security.RateLimiter,
+	breachChecker security.BreachedPasswordChecker,
 	audit store.AuditStore,
 	log logger.Logger,
 	email string,
@@ -36,6 +41,21 @@ func SignUp(
 		// A user with this email already exists.
 		log.Warn("signup: duplicate email attempt", map[string]string{"ip": callerIP})
 		return store.User{}, ErrUserExists
+	}
+
+	if breachChecker != nil {
+		breached, err := breachChecker.IsBreached(ctx, password)
+		if err != nil {
+			log.Error("signup: breach checker error, failing open", map[string]string{"error": err.Error()})
+		} else if breached {
+			if auditErr := audit.Record(ctx, store.AuditEvent{
+				Type: store.EventPasswordBreachRejected,
+				IP:   callerIP,
+			}); auditErr != nil {
+				log.Error("signup: audit record failed", map[string]string{"error": auditErr.Error()})
+			}
+			return store.User{}, ErrPasswordBreached
+		}
 	}
 
 	hash, err := hasher.Hash(password)
