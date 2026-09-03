@@ -90,6 +90,17 @@ func TestGoWebAuthnProvider_LoginRoundTrip(t *testing.T) {
 	user.creds = append(user.creds, *cred)
 	rp := virtualwebauthn.RelyingParty{Name: testRPDisplayName, ID: testRPID, Origin: testRPOrigin}
 
+	// virtualwebauthn's simulated credential starts at counter 0 and
+	// never auto-increments — unlike many real hardware authenticators,
+	// which do. Bump it manually here to exercise the pass-through
+	// path this test actually cares about: does FinishLogin correctly
+	// surface whatever counter value the authenticator reports, so a
+	// caller can persist it and detect a future non-advancing (cloned-
+	// authenticator) value? A counter of 0 is itself a legitimate,
+	// spec-allowed value (many platform authenticators never track
+	// one at all), so asserting "must be nonzero" was simply wrong.
+	vCred.Counter = 7
+
 	assertion, session, err := provider.BeginLogin(user)
 	if err != nil {
 		t.Fatalf("BeginLogin failed: %v", err)
@@ -109,8 +120,8 @@ func TestGoWebAuthnProvider_LoginRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FinishLogin failed: %v", err)
 	}
-	if updatedCred.Authenticator.SignCount == 0 {
-		t.Error("expected the signature counter to have advanced past zero after a real login")
+	if updatedCred.Authenticator.SignCount != 7 {
+		t.Errorf("expected the returned credential to carry the authenticator's reported counter (7), got %d", updatedCred.Authenticator.SignCount)
 	}
 }
 
