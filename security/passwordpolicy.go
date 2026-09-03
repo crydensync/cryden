@@ -14,10 +14,12 @@ import "unicode"
 // email bodies either), so it doesn't start here.
 type PasswordPolicy struct {
 	// MinLength defaults to 8 if the whole PasswordPolicy is left as
-	// the zero value (detected via MaxLength == 0 — see
-	// applyDefaults). NIST 800-63B guidance is length matters far
-	// more than forced complexity rules, which is why the default
-	// ships with no character-class requirements at all.
+	// the zero value (compared as a whole struct against
+	// PasswordPolicy{} — see Config.applyDefaults; setting even one
+	// field elsewhere counts as a real custom policy, not "unset").
+	// NIST 800-63B guidance is length matters far more than forced
+	// complexity rules, which is why the default ships with no
+	// character-class requirements at all.
 	MinLength int
 	// MaxLength defaults to 72 — bcrypt's own real limit. Without an
 	// explicit check here, a password over that silently hits a raw
