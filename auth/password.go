@@ -13,11 +13,12 @@ import (
 // from just a valid access token alone, since a stolen access token
 // would then be enough to lock the real owner out permanently.
 //
-// newPassword is checked against known breaches if breachChecker is
-// set — same enforcement and same fail-open-on-checker-error behavior
-// as SignUp; see its doc comment. Checked AFTER the current-password
-// verification, so a caller can't use this to probe breach status
-// without already proving they own the account.
+// newPassword is checked against policy and, if breachChecker is set,
+// against known breaches — same enforcement and same fail-open-on-
+// checker-error behavior as SignUp; see its doc comment. Checked
+// AFTER the current-password verification, so a caller can't use this
+// to probe policy/breach status without already proving they own the
+// account.
 //
 // On success, ALL sessions are revoked (including the one making this
 // request) — if the old password leaked, any session an attacker
@@ -31,6 +32,7 @@ func ChangePassword(
 	breachChecker security.BreachedPasswordChecker,
 	audit store.AuditStore,
 	log logger.Logger,
+	policy security.PasswordPolicy,
 	userID string,
 	currentPassword string,
 	newPassword string,
@@ -43,6 +45,10 @@ func ChangePassword(
 	if err := hasher.Compare(user.PasswordHash, currentPassword); err != nil {
 		log.Warn("change password: current password mismatch", map[string]string{"user_id": userID})
 		return ErrInvalidCredentials
+	}
+
+	if violations := policy.Validate(newPassword); len(violations) > 0 {
+		return &ErrPasswordPolicyViolation{Violations: violations}
 	}
 
 	if breachChecker != nil {

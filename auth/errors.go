@@ -105,6 +105,24 @@ var (
 	ErrInvalidCeremonyToken = errors.New("auth: passkey ceremony expired or invalid, please try again")
 	// ErrPasswordBreached is returned by SignUp/ChangePassword when a
 	// configured BreachedPasswordChecker confirms the password has
-	// appeared in a known data breach.
+	// appeared in a known data breach. Distinct from
+	// ErrPasswordPolicyViolation — this isn't about the password's
+	// shape (length, character classes), it's about a specific known-
+	// bad value.
 	ErrPasswordBreached = errors.New("auth: this password has appeared in a known data breach and cannot be used")
 )
+
+// ErrPasswordPolicyViolation is returned by SignUp/ChangePassword when
+// a password fails Config.PasswordPolicy. Deliberately a struct type
+// carrying every violated rule at once (as stable string codes from
+// security.PasswordPolicy.Validate), same errors.As pattern as
+// ErrSecondFactorRequired — so a caller can show every problem
+// together ("needs 8+ characters and a number") instead of forcing a
+// fix-resubmit-discover-the-next-one loop.
+type ErrPasswordPolicyViolation struct {
+	Violations []string
+}
+
+func (e *ErrPasswordPolicyViolation) Error() string {
+	return "auth: password does not meet the configured policy"
+}

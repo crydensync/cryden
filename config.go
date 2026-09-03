@@ -83,6 +83,12 @@ type Config struct {
 	// ErrRecoveryCodesNotConfigured and Login never advertises
 	// "recovery_code" as an available second-factor method.
 	RecoveryCodes store.RecoveryCodeStore
+	// PasswordPolicy is checked on every SignUp/ChangePassword. Unlike
+	// TOTP/WebAuthn, this has no "unconfigured means off" state —
+	// leaving it as the zero value applies security.DefaultPasswordPolicy
+	// instead (detected via MaxLength == 0, which no real policy would
+	// intentionally set).
+	PasswordPolicy security.PasswordPolicy
 	// BreachedPasswordChecker is optional — only checked if set, on
 	// SignUp/ChangePassword. Ships no implementation (see the type's
 	// own doc comment); a checker error fails open rather than
@@ -156,6 +162,9 @@ func (c *Config) applyDefaults() {
 	}
 	if c.TOTP != nil && c.TOTPIssuerName == "" {
 		c.TOTPIssuerName = "Cryden"
+	}
+	if c.PasswordPolicy.MaxLength == 0 {
+		c.PasswordPolicy = security.DefaultPasswordPolicy
 	}
 	if c.Logger == nil {
 		c.Logger = logger.NewConsoleJSONLogger()
