@@ -276,6 +276,38 @@ tokens, err := cryden.CompleteLoginWithRecoveryCode(ctx, engine, secondFactor.Pe
 
 **One safety property worth knowing:** `"recovery_code"` only ever appears in `Login`'s `Methods` list *alongside* `"totp"` and/or `"webauthn"` — never on its own. If an account's last real second factor gets disabled while unconsumed codes still exist in storage, those codes stop being offered at all, rather than silently becoming a standalone permanent backdoor into the account. Calling either function without `Config.RecoveryCodes` set returns `cryden.ErrRecoveryCodesNotConfigured`.
 
+## Breached-password check
+
+```go
+engine, err := cryden.New(cryden.Config{
+	// ...required fields...
+	BreachedPasswordChecker: yourChecker, // implements security.BreachedPasswordChecker
+})
+```
+
+Ships **zero implementations** — checking a password against a breach database means an outbound network call (e.g. to [HIBP's Pwned Passwords API](https://haveibeenpwned.com/API/v3#PwnedPasswords), which uses k-anonymity so you never send the actual password), and the engine doesn't talk to the internet on its own initiative anywhere else in this codebase, so it doesn't start here either. A minimal HIBP implementation looks roughly like:
+
+```go
+type hibpChecker struct{ client *http.Client }
+
+func (h *hibpChecker) IsBreached(ctx context.Context, password string) (bool, error) {
+	sum := sha1.Sum([]byte(password))
+	hash := strings.ToUpper(hex.EncodeToString(sum[:]))
+	prefix, suffix := hash[:5], hash[5:]
+
+	req, _ := http.NewRequestWithContext(ctx, "GET", "https://api.pwnedpasswords.com/range/"+prefix, nil)
+	resp, err := h.client.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	return strings.Contains(string(body), suffix), nil
+}
+```
+
+Checked on `SignUp` and `ChangePassword`, after the password policy (cheap, local checks first) and after `ChangePassword`'s current-password verification (a new password's breach status should never leak to someone who hasn't already proven they own the account). **A checker error fails open** — SignUp/ChangePassword proceed rather than blocking on a third-party API's uptime; only a confirmed breach (`true, nil`) rejects the password with `auth.ErrPasswordBreached`.
+
 ## AI-assisted admin queries (library support only)
 
 The `ai` subpackage provides the safety machinery for natural-language admin tooling — an allowlisted `QueryIntent` type, `validateIntent`, and `ExecuteQuery` — plus `store/postgres.SafeQueryStore`, a read-only query executor. This is a foundation for tools like `csax`'s CLI to build on, not a feature you call directly in application code. An LLM's output is treated as untrusted data to validate against a strict allowlist, never as SQL to execute — and the actual DB connection passed to `SafeQueryStore` must be opened with a read-only Postgres role, since that's the real safety boundary, not just the allowlist check. `ai.LLMProvider` ships zero implementations; bring your own (OpenAI, Anthropic, OpenRouter, a local model).
@@ -287,6 +319,7 @@ The `ai` subpackage provides the safety machinery for natural-language admin too
 - Two-factor authentication: TOTP and passkeys (WebAuthn), unified under one pause state — see [Two-factor authentication](#two-factor-authentication-totp) and [Passkeys](#passkeys-webauthn-as-a-second-factor)
 - Magic-link (passwordless) login for existing accounts, routed through the same second-factor gate — see [Magic-link login](#magic-link-passwordless-login)
 - Recovery (backup) codes as a second-factor fallback, with a safety guard against becoming a standalone backdoor once the real factor is removed — see [Recovery codes](#recovery-backup-codes)
+- Breached-password checking (interface-only, bring your own HIBP/etc.) — see [Breached-password check](#breached-password-check)
 - JWT access tokens + rotating opaque refresh tokens with theft/reuse detection
 - Session listing and revocation
 - Change password (requires current password, revokes all other sessions)
