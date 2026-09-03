@@ -3,6 +3,7 @@ package cryden
 import (
 	"testing"
 
+	"github.com/crydensync/cryden/v2/security"
 	"github.com/crydensync/cryden/v2/store/memory"
 )
 
@@ -60,5 +61,36 @@ func TestNew_AppliesDefaultsWithoutError(t *testing.T) {
 	cfg := validConfig()
 	if _, err := New(cfg); err != nil {
 		t.Fatalf("expected zero-valued tuning knobs to default cleanly, got: %v", err)
+	}
+}
+
+func TestNew_LeavesAPartialCustomPasswordPolicyIntact(t *testing.T) {
+	// Regression test: applyDefaults used to detect "unset" via
+	// PasswordPolicy.MaxLength == 0 alone, which silently overwrote
+	// any custom policy that set MinLength/character requirements but
+	// left MaxLength untouched — exactly what a caller would naturally
+	// do. Only the fully-zero-value struct should trigger the default.
+	cfg := validConfig()
+	cfg.PasswordPolicy = security.PasswordPolicy{MinLength: 12, RequireUppercase: true}
+	e, err := New(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if e.passwordPolicy.MinLength != 12 {
+		t.Errorf("expected MinLength 12 to survive applyDefaults, got %d", e.passwordPolicy.MinLength)
+	}
+	if !e.passwordPolicy.RequireUppercase {
+		t.Error("expected RequireUppercase to survive applyDefaults")
+	}
+}
+
+func TestNew_AppliesDefaultPasswordPolicyWhenFullyUnset(t *testing.T) {
+	cfg := validConfig()
+	e, err := New(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if e.passwordPolicy != security.DefaultPasswordPolicy {
+		t.Errorf("expected DefaultPasswordPolicy when Config.PasswordPolicy is left unset, got %+v", e.passwordPolicy)
 	}
 }
