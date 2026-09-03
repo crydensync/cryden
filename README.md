@@ -249,6 +249,33 @@ tokens, err := cryden.CompleteMagicLink(ctx, engine, rawTokenFromTheLink, caller
 
 The link is valid for 15 minutes and single-use — clicking it a second time fails the same way an expired one does. Like `Login`, `CompleteMagicLink` routes through the same second-factor gate: an account with TOTP/a passkey enrolled returns `*auth.ErrSecondFactorRequired` here exactly as it would after a correct password — clicking the link proves email ownership, the primary factor, not a bypass of a confirmed second one. Calling either function without `Config.MagicLinkSender` set returns `cryden.ErrMagicLinkNotConfigured`.
 
+## Recovery (backup) codes
+
+Requires one additional `Config` field:
+
+```go
+engine, err := cryden.New(cryden.Config{
+	// ...required fields...
+	RecoveryCodes: postgres.NewRecoveryCodeStore(db), // or memory.NewRecoveryCodeStore()
+})
+```
+
+Generating a batch requires the account to already have a confirmed TOTP secret or a registered passkey — codes exist to recover access to a *real* second factor, not to stand in as one on their own:
+
+```go
+codes, err := cryden.GenerateRecoveryCodes(ctx, engine, userID)
+// show `codes` to the user ONCE — the engine only ever stores their hashes
+// and can never display them again after this call returns
+```
+
+Generating a fresh batch always replaces the previous one in full — every old code, used or not, stops working immediately. Completion works the same way TOTP does:
+
+```go
+tokens, err := cryden.CompleteLoginWithRecoveryCode(ctx, engine, secondFactor.PendingToken, code, callerIP, userAgent)
+```
+
+**One safety property worth knowing:** `"recovery_code"` only ever appears in `Login`'s `Methods` list *alongside* `"totp"` and/or `"webauthn"` — never on its own. If an account's last real second factor gets disabled while unconsumed codes still exist in storage, those codes stop being offered at all, rather than silently becoming a standalone permanent backdoor into the account. Calling either function without `Config.RecoveryCodes` set returns `cryden.ErrRecoveryCodesNotConfigured`.
+
 ## AI-assisted admin queries (library support only)
 
 The `ai` subpackage provides the safety machinery for natural-language admin tooling — an allowlisted `QueryIntent` type, `validateIntent`, and `ExecuteQuery` — plus `store/postgres.SafeQueryStore`, a read-only query executor. This is a foundation for tools like `csax`'s CLI to build on, not a feature you call directly in application code. An LLM's output is treated as untrusted data to validate against a strict allowlist, never as SQL to execute — and the actual DB connection passed to `SafeQueryStore` must be opened with a read-only Postgres role, since that's the real safety boundary, not just the allowlist check. `ai.LLMProvider` ships zero implementations; bring your own (OpenAI, Anthropic, OpenRouter, a local model).
@@ -259,6 +286,7 @@ The `ai` subpackage provides the safety machinery for natural-language admin too
 - OAuth login/signup (Google, GitHub, or any provider) with explicit, non-auto-linking account collision handling — see [OAuth](#oauth-google-github-or-any-provider)
 - Two-factor authentication: TOTP and passkeys (WebAuthn), unified under one pause state — see [Two-factor authentication](#two-factor-authentication-totp) and [Passkeys](#passkeys-webauthn-as-a-second-factor)
 - Magic-link (passwordless) login for existing accounts, routed through the same second-factor gate — see [Magic-link login](#magic-link-passwordless-login)
+- Recovery (backup) codes as a second-factor fallback, with a safety guard against becoming a standalone backdoor once the real factor is removed — see [Recovery codes](#recovery-backup-codes)
 - JWT access tokens + rotating opaque refresh tokens with theft/reuse detection
 - Session listing and revocation
 - Change password (requires current password, revokes all other sessions)

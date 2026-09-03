@@ -329,5 +329,5 @@ func CompleteLoginWithWebAuthn(
 	if err != nil {
 		return Tokens{}, err
 	}
-	return finishLogin(ctx, sessions, ids, refreshGen, jwtIssuer, audit, log, realUser, callerIP, userAgent, "webauthn")
+	return finishLogin(ctx, sessions, ids, refreshGen, jwtIssuer, audit, log, realUser, callerIP, userAgent, "webauthn", nil)
 }
