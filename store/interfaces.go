@@ -130,6 +130,7 @@ const (
 	EventRecoveryCodesGenerated  AuditEventType = "recovery_codes_generated"
 	EventRecoveryCodeUsed        AuditEventType = "recovery_code_used"
 	EventRecoveryCodeFailed      AuditEventType = "recovery_code_failed"
+	EventPasswordBreachRejected  AuditEventType = "password_breach_rejected"
 )
 
 // AuditEvent is a single security-relevant, queryable record.

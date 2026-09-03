@@ -5,6 +5,7 @@ import (
 
 	"github.com/crydensync/cryden/v2/logger"
 	"github.com/crydensync/cryden/v2/notify"
+	"github.com/crydensync/cryden/v2/security"
 	"github.com/crydensync/cryden/v2/store"
 )
 
@@ -82,6 +83,11 @@ type Config struct {
 	// ErrRecoveryCodesNotConfigured and Login never advertises
 	// "recovery_code" as an available second-factor method.
 	RecoveryCodes store.RecoveryCodeStore
+	// BreachedPasswordChecker is optional — only checked if set, on
+	// SignUp/ChangePassword. Ships no implementation (see the type's
+	// own doc comment); a checker error fails open rather than
+	// blocking the account action.
+	BreachedPasswordChecker security.BreachedPasswordChecker
 
 	// Optional — sensible defaults applied in New() if zero-valued.
 	// These are tuning knobs, not security-critical secrets, so
