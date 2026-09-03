@@ -126,6 +126,7 @@ const (
 	EventWebAuthnRegistered      AuditEventType = "webauthn_registered"
 	EventWebAuthnRemoved         AuditEventType = "webauthn_removed"
 	EventWebAuthnChallengeFailed AuditEventType = "webauthn_challenge_failed"
+	EventMagicLinkRequested      AuditEventType = "magic_link_requested"
 )
 
 // AuditEvent is a single security-relevant, queryable record.
@@ -164,6 +165,12 @@ type VerificationPurpose string
 const (
 	PurposeEmailVerify VerificationPurpose = "email_verify"
 	PurposeEmailChange VerificationPurpose = "email_change"
+	// PurposeMagicLink marks a token as a passwordless login link — a
+	// separate purpose from PurposeEmailVerify even though both are
+	// "click a link in your email": GetByTokenHash's Purpose check is
+	// what stops a leaked/guessed email-verification link from ever
+	// being replayed as a login link, or vice versa.
+	PurposeMagicLink VerificationPurpose = "magic_link"
 )
 
 // VerificationToken represents a single-use, expiring token sent to an

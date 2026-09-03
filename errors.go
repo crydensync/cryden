@@ -18,4 +18,9 @@ var (
 	// has a safe default (RPID especially: guessing wrong binds every
 	// registered passkey to the wrong domain).
 	ErrMissingWebAuthnConfig = errors.New("cryden: WebAuthnRPID, WebAuthnRPDisplayName, and WebAuthnRPOrigins are all required when Config.WebAuthn is set")
+	// ErrMissingVerificationStore is returned by New if
+	// Config.MagicLinkSender is set but Config.Verifications isn't —
+	// magic-link tokens are stored there, alongside email-change
+	// tokens, distinguished by purpose.
+	ErrMissingVerificationStore = errors.New("cryden: Config.Verifications is required when Config.MagicLinkSender is set")
 )
