@@ -13,9 +13,11 @@ import (
 // from just a valid access token alone, since a stolen access token
 // would then be enough to lock the real owner out permanently.
 //
-// NOTE: run your ValidatePassword policy check on newPassword BEFORE
-// calling this — same as SignUp, fail on bad input before touching
-// the DB or spending bcrypt's CPU cost.
+// newPassword is checked against known breaches if breachChecker is
+// set — same enforcement and same fail-open-on-checker-error behavior
+// as SignUp; see its doc comment. Checked AFTER the current-password
+// verification, so a caller can't use this to probe breach status
+// without already proving they own the account.
 //
 // On success, ALL sessions are revoked (including the one making this
 // request) — if the old password leaked, any session an attacker
@@ -26,6 +28,7 @@ func ChangePassword(
 	users store.UserStore,
 	sessions store.SessionStore,
 	hasher security.Hasher,
+	breachChecker security.BreachedPasswordChecker,
 	audit store.AuditStore,
 	log logger.Logger,
 	userID string,
@@ -40,6 +43,21 @@ func ChangePassword(
 	if err := hasher.Compare(user.PasswordHash, currentPassword); err != nil {
 		log.Warn("change password: current password mismatch", map[string]string{"user_id": userID})
 		return ErrInvalidCredentials
+	}
+
+	if breachChecker != nil {
+		breached, err := breachChecker.IsBreached(ctx, newPassword)
+		if err != nil {
+			log.Error("change password: breach checker error, failing open", map[string]string{"error": err.Error(), "user_id": userID})
+		} else if breached {
+			if auditErr := audit.Record(ctx, store.AuditEvent{
+				Type:   store.EventPasswordBreachRejected,
+				UserID: userID,
+			}); auditErr != nil {
+				log.Error("change password: audit record failed", map[string]string{"error": auditErr.Error(), "user_id": userID})
+			}
+			return ErrPasswordBreached
+		}
 	}
 
 	newHash, err := hasher.Hash(newPassword)

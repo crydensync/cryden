@@ -24,6 +24,7 @@ type Engine struct {
 	webauthn        store.WebAuthnCredentialStore
 	magicLinkSender notify.MagicLinkSender
 	recoveryCodes   store.RecoveryCodeStore
+	breachChecker   security.BreachedPasswordChecker
 
 	hasher           security.Hasher
 	ids              security.IDGenerator
@@ -107,6 +108,7 @@ func New(cfg Config) (*Engine, error) {
 		webauthn:         cfg.WebAuthn,
 		magicLinkSender:  cfg.MagicLinkSender,
 		recoveryCodes:    cfg.RecoveryCodes,
+		breachChecker:    cfg.BreachedPasswordChecker,
 		hasher:           hasher,
 		ids:              security.NewUUIDv7Generator(),
 		rateLimiter:      security.NewInMemoryRateLimiter(cfg.RateLimitAttempts, cfg.RateLimitWindow),
