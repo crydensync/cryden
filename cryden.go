@@ -19,6 +19,10 @@ import (
 // RefreshToken.
 type Tokens = auth.Tokens
 
+// NamedSession is an active session plus its human-readable label,
+// as returned by ListNamedSessions.
+type NamedSession = session.NamedSession
+
 // SignUp creates a new user. callerIP is required — used only for
 // rate limiting and audit metadata, never inferred by the engine.
 func SignUp(ctx context.Context, e *Engine, email, password, callerIP string) (store.User, error) {
@@ -180,6 +184,20 @@ func ListPublicSessions(ctx context.Context, e *Engine, userID string) ([]store.
 		out = append(out, s.ToPublic())
 	}
 	return out, nil
+}
+
+// ListNamedSessions is ListPublicSessions with a human-readable label
+// on each session — "Chrome on Windows — San Francisco, CA" instead of
+// a bare session ID, for a settings page that expects someone to
+// recognize their own devices and revoke the one they don't.
+//
+// Labels are derived on read from the IP and User-Agent already stored
+// on each session, so this works retroactively on sessions created
+// before it existed. The device half always resolves (to "Unknown
+// device" at worst); the location half needs Config.Geolocator, and is
+// simply omitted when that is unset or its lookup fails.
+func ListNamedSessions(ctx context.Context, e *Engine, userID string) ([]NamedSession, error) {
+	return session.ListNamed(ctx, e.sessions, e.geolocator, e.log, userID)
 }
 
 // RevokeSession revokes a specific session. Verifies ownership before
