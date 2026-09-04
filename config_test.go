@@ -1,10 +1,12 @@
 package cryden
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/crydensync/cryden/v2/security"
+	"github.com/crydensync/cryden/v2/store"
 	"github.com/crydensync/cryden/v2/store/memory"
 	"github.com/redis/go-redis/v9"
 )
@@ -271,5 +273,143 @@ func TestNew_AcceptsARedisRateLimiter(t *testing.T) {
 	}
 	if e.rateLimiter != limiter {
 		t.Errorf("expected the Redis limiter to reach the engine, got %T", e.rateLimiter)
+	}
+}
+
+// The default is unchanged from before Config.Hasher existed — bcrypt at
+// BcryptCost — but it now arrives wrapped, which is what makes an
+// existing table of bcrypt hashes verifiable under any later
+// configuration.
+func TestNew_DefaultsToBcryptWrappedInAMultiHasher(t *testing.T) {
+	e, err := New(validConfig())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	multi, ok := e.hasher.(*security.MultiHasher)
+	if !ok {
+		t.Fatalf("expected a MultiHasher, got %T", e.hasher)
+	}
+	if _, ok := multi.Primary().(*security.BcryptHasher); !ok {
+		t.Errorf("expected bcrypt as the primary, got %T", multi.Primary())
+	}
+	hash, err := e.hasher.Hash("Tr0ubl3-Fr33!2026")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := security.IdentifyHash(hash); got != security.AlgorithmBcrypt {
+		t.Errorf("default hasher wrote a %q hash", got)
+	}
+}
+
+func TestNew_AcceptsACustomHasher(t *testing.T) {
+	hasher, err := security.NewArgon2idHasher(security.Argon2idParams{
+		Memory: 64, Iterations: 1, Parallelism: 1, SaltLength: 8, KeyLength: 16,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	cfg := validConfig()
+	cfg.Hasher = hasher
+	// Ignored when Hasher is set — asserted by the primary below being
+	// the Argon2id hasher rather than a bcrypt one at this cost.
+	cfg.BcryptCost = 12
+
+	e, err := New(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	multi, ok := e.hasher.(*security.MultiHasher)
+	if !ok {
+		t.Fatalf("expected a MultiHasher, got %T", e.hasher)
+	}
+	if multi.Primary() != security.Hasher(hasher) {
+		t.Errorf("expected Config.Hasher to become the primary, got %T", multi.Primary())
+	}
+	hash, err := e.hasher.Hash("Tr0ubl3-Fr33!2026")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := security.IdentifyHash(hash); got != security.AlgorithmArgon2id {
+		t.Errorf("configured hasher wrote a %q hash", got)
+	}
+}
+
+// A host that wraps its own hasher gets that instance, not a wrapper
+// around a wrapper.
+func TestNew_DoesNotDoubleWrapAMultiHasher(t *testing.T) {
+	bcryptHasher, _ := security.NewBcryptHasher(4)
+	hasher := security.NewMultiHasher(bcryptHasher)
+	cfg := validConfig()
+	cfg.Hasher = hasher
+
+	e, err := New(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if e.hasher != security.Hasher(hasher) {
+		t.Errorf("expected the host's own MultiHasher to reach the engine, got %T", e.hasher)
+	}
+}
+
+// The mixed table, through the public facade: an account created under
+// the old configuration logs in under the new one, and the login itself
+// finishes the migration for that account.
+func TestNew_ASwitchedHasherStillLogsInOldAccounts(t *testing.T) {
+	ctx := context.Background()
+	users := memory.NewUserStore()
+	sessions := memory.NewSessionStore()
+	audit := memory.NewAuditStore()
+	baseConfig := func() Config {
+		return Config{
+			JWTSecret:  "test-secret",
+			Users:      users,
+			Sessions:   sessions,
+			Audit:      audit,
+			BcryptCost: 4,
+		}
+	}
+
+	before, err := New(baseConfig())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, err := SignUp(ctx, before, "raymondproguy@dev.com", "Tr0ubl3-Fr33!2026", "1.2.3.4"); err != nil {
+		t.Fatalf("signup failed: %v", err)
+	}
+	user, _ := users.GetByEmail(ctx, "raymondproguy@dev.com")
+	if got := security.IdentifyHash(user.PasswordHash); got != security.AlgorithmBcrypt {
+		t.Fatalf("expected the old account to be hashed with bcrypt, got %q", got)
+	}
+
+	argon2id, err := security.NewArgon2idHasher(security.Argon2idParams{
+		Memory: 64, Iterations: 1, Parallelism: 1, SaltLength: 8, KeyLength: 16,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	cfg := baseConfig()
+	cfg.Hasher = argon2id
+	after, err := New(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if _, err := Login(ctx, after, "raymondproguy@dev.com", "Tr0ubl3-Fr33!2026", "1.2.3.4", "test-agent"); err != nil {
+		t.Fatalf("login against the switched hasher failed: %v", err)
+	}
+	user, _ = users.GetByEmail(ctx, "raymondproguy@dev.com")
+	if got := security.IdentifyHash(user.PasswordHash); got != security.AlgorithmArgon2id {
+		t.Errorf("stored hash is %q after the login, want argon2id", got)
+	}
+	// And the account is not left in a state only the old engine can read.
+	if _, err := Login(ctx, after, "raymondproguy@dev.com", "Tr0ubl3-Fr33!2026", "1.2.3.4", "test-agent"); err != nil {
+		t.Errorf("login after the upgrade failed: %v", err)
+	}
+	events, err := audit.SearchByType(ctx, store.EventPasswordHashUpgraded, 10)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(events) != 1 {
+		t.Errorf("got %d password_hash_upgraded events, want exactly 1", len(events))
 	}
 }
