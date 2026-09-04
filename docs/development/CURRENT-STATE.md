@@ -1,7 +1,7 @@
 # cryden — current state
 
-Last updated: 2026-09-04 (by the session that built
-named/fingerprinted sessions). Update this file's date and content every time a session
+Last updated: 2026-09-05 (by the session that built the Redis-backed
+rate limiter). Update this file's date and content every time a session
 finishes an item — see `CLAUDE.md`'s end-of-session checklist.
 
 ## Tagged releases
@@ -24,7 +24,7 @@ If you find a real bug in it while working on something else, fix it
 on its own small branch and note it in `PROGRESS.md` — don't treat
 finding it as license to re-audit the rest.
 
-## Tier 2 — Security & Monitoring: IN PROGRESS (3 of 4 done)
+## Tier 2 — Security & Monitoring: DONE (4 of 4)
 
 ### Item 8 — anomaly detection: DONE, branch `feat/anomaly-detection`
 
@@ -141,11 +141,51 @@ subtests), `security/geolocation_test.go` (2), `session/named_test.go`
 test: `cmd/smoketest/named-sessions` (42 checks). Manual guide:
 `docs/testing/named-sessions.md`.
 
-### Item 11: NOT STARTED
+### Item 11 — Redis-backed rate limiter: DONE, branch `feat/redis-rate-limiter`
 
-Detailed specs in `NEXT.md`. The design decision recorded for item 8
-below is kept for reference — it is what the shipped code implements.
-**Do not re-ask or re-derive it**:
+A **second real implementation** of the existing `security.RateLimiter`,
+not a new interface: the in-memory one keeps its counters in a Go map,
+which is correct for exactly one process — three replicas keep three
+maps, so a configured limit of 10 lets 30 through.
+
+Shipped as: `security/redisratelimiter.go` (`RedisRateLimiter`,
+`NewRedisRateLimiter`, `NewRedisRateLimiterWithPrefix`,
+`DefaultRedisKeyPrefix = "cryden:ratelimit:"`), three new sentinels in
+`security/errors.go`, and `Config.RateLimiter` — injected already
+constructed, like every store, so the engine never dials Redis nor owns
+its lifecycle. `engine.go` falls back to the in-process default only
+when that field is nil. Nothing in `auth/` changed or can tell which
+implementation it holds.
+
+Decisions worth not re-deriving (full reasoning in `PROGRESS.md`):
+`github.com/redis/go-redis/v9`, injected as its own `redis.Scripter`
+interface so Client/ClusterClient/Ring/UniversalClient all work and
+`redis.NewScript`'s EVALSHA→EVAL fallback is reused rather than
+reimplemented; one Lua script per `Allow` because INCR and PEXPIRE
+apart lets two replicas each arm their own window; `PEXPIRE` only when
+`INCR` returns 1 (or `PTTL` reports none) so a denied client's own
+retries cannot push its window out; exactly one key per call, so
+Cluster needs no special case; windows under 1ms rejected rather than
+rounded, the single place the two implementations are not
+interchangeable. Fail-closed is unchanged and now load-bearing — all
+three call sites already propagate a limiter error, so Redis becomes a
+hard dependency of SignUp/Login/RequestMagicLink; documented, with a
+fail-open wrapper left to the host.
+
+Tests: `security/redisratelimiter_test.go` (14 funcs over a fake that
+models the script), plus 3 in `config_test.go` and 1 in
+`new_facade_test.go`. Smoke test: `cmd/smoketest/redis-rate-limiter`
+(58 checks over ten scenarios) — runs against an in-process stand-in by
+default, and against a real server with `REDIS_ADDR` set, which is the
+mode that actually executes the Lua. **No Redis server was reachable in
+the build environment**, so the Lua itself is so far verified only
+against that stand-in; one `docker run` closes the gap. Manual guide:
+`docs/testing/redis-rate-limiter.md`.
+
+#### Item 8's recorded decisions, kept for reference
+
+What the shipped anomaly-detection code implements. **Do not re-ask or
+re-derive it**:
 
 - **Signals to evaluate**: new IP/device (vs. recent successful
   logins), failed-attempt velocity (per-user and per-IP), and
@@ -173,9 +213,6 @@ below is kept for reference — it is what the shipped code implements.
   `login_attempts` table with three partial indexes — plus
   `CountTargetsForIP`, added by item 9 above against the same table.
 
-Item 11 (Redis-backed rate limiter) has no prior design decisions
-recorded — see `NEXT.md` for the level of detail available, make
-reasonable calls on anything unspecified, note them in `PROGRESS.md`.
 
 ## Tier 3 — Infrastructure & Extensibility: NOT STARTED
 
@@ -212,6 +249,14 @@ project brief.
   `config.go`/`engine.go` additions sit directly above theirs, so lifting
   it onto `main` alone means resolving that adjacency by hand. Unmerged
   and unpushed.
+- `feat/redis-rate-limiter` — item 11, complete, 6 commits, branched
+  from `feat/named-sessions` at `345b2d7`, the tip of the chain, so this
+  branch carries items 8, 9, 10 and 11. Item 11 has no functional
+  dependency on any of them, but it adds a `config.go`/`engine.go` field
+  in the same region they did, so the same by-hand adjacency applies if
+  it is lifted onto `main` alone. It is also the only item so far that
+  adds a **direct third-party dependency** (`go-redis`) to `go.mod`.
+  Unmerged and unpushed.
 
 Nothing else in flight. Each new session picks the top item off
 `NEXT.md`, creates its own branch, and this section should be updated to
