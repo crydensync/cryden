@@ -160,6 +160,20 @@ const (
 	// a success arriving from an IP that is spraying is the single most
 	// important case to surface, since it means one of the guesses landed.
 	EventCredentialStuffingDetected AuditEventType = "credential_stuffing_detected"
+
+	// EventPasswordHashUpgraded records that a successful login found the
+	// account's stored password hash out of date — a weaker algorithm, or
+	// the configured one at costs since raised — and rewrote it. Metadata
+	// carries "from" and "to" algorithm names (see
+	// security.IdentifyHash); neither the password nor either hash is
+	// ever recorded.
+	//
+	// It exists because a hash migration is otherwise invisible: this is
+	// how an operator watches one drain, by counting these against the
+	// user total (see AuditStore.SearchByType). Recorded only on a login
+	// that already succeeded, and never a rejection — a failed rewrite
+	// leaves the old hash in place and the login stands.
+	EventPasswordHashUpgraded AuditEventType = "password_hash_upgraded"
 )
 
 // AuditEvent is a single security-relevant, queryable record.
