@@ -95,4 +95,31 @@ func (s *AnomalyStore) CountFailuresForIP(ctx context.Context, ip string, since 
 	return count, err
 }
 
+func (s *AnomalyStore) CountTargetsForIP(ctx context.Context, ip string, since time.Time) (store.IPTargetCounts, error) {
+	if ip == "" {
+		return store.IPTargetCounts{}, nil
+	}
+
+	var counts store.IPTargetCounts
+	// One pass over the same index-covered rows CountFailuresForIP uses,
+	// producing both numbers — two round trips for one question would be
+	// wasteful on a query that runs on every failed login.
+	//
+	// COUNT(DISTINCT user_id) skips NULL rows entirely, which is exactly
+	// why the second column exists: an attempt against an email with no
+	// account behind it is stored with user_id NULL, and those are the
+	// bulk of a spray working from a list obtained elsewhere. Counting
+	// them with COUNT(*) FILTER means they are attempts rather than
+	// distinct targets — the attempted address is not stored, so there is
+	// nothing to take a DISTINCT over.
+	err := s.db.QueryRowContext(ctx, `
+		SELECT
+			COUNT(DISTINCT user_id),
+			COUNT(*) FILTER (WHERE user_id IS NULL)
+		FROM login_attempts
+		WHERE ip = $1 AND outcome = 'failure' AND created_at >= $2
+	`, ip, since).Scan(&counts.DistinctAccounts, &counts.UnknownTargetFailures)
+	return counts, err
+}
+
 var _ store.AnomalyStore = (*AnomalyStore)(nil)

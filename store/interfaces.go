@@ -140,6 +140,26 @@ const (
 	// proceed, it is never a rejection, and there is deliberately no
 	// matching sentinel error for callers to branch on.
 	EventAnomalyDetected AuditEventType = "anomaly_detected"
+
+	// EventCredentialStuffingDetected records that one IP's recent failed
+	// attempts were spread across enough different target accounts to
+	// look like credential stuffing rather than a forgotten password.
+	// Metadata carries the same "signals" key as EventAnomalyDetected
+	// plus the breadth counts behind it.
+	//
+	// Its own type, not more EventAnomalyDetected metadata, because the
+	// two answer different questions: an anomaly event is about one
+	// account and belongs in that user's history, while this one is about
+	// an IP attacking many accounts and is usually queried system-wide
+	// (see AuditStore.SearchByType). UserID is whichever account the
+	// triggering attempt named, and is empty when that attempt named an
+	// email with no account behind it — it is incidental context, never
+	// the subject of the event.
+	//
+	// Recorded on failed AND successful attempts, and never a rejection:
+	// a success arriving from an IP that is spraying is the single most
+	// important case to surface, since it means one of the guesses landed.
+	EventCredentialStuffingDetected AuditEventType = "credential_stuffing_detected"
 )
 
 // AuditEvent is a single security-relevant, queryable record.
@@ -399,4 +419,34 @@ type AnomalyStore interface {
 	// after since, across every account it targeted — including
 	// attempts against emails that match no account.
 	CountFailuresForIP(ctx context.Context, ip string, since time.Time) (int, error)
+
+	// CountTargetsForIP reports how broadly this IP's failures at or
+	// after since were spread, rather than how many there were —
+	// credential stuffing is one password against many accounts, which
+	// CountFailuresForIP's total cannot distinguish from one account
+	// being hammered.
+	//
+	// Reads the same rows and the same partial index
+	// (idx_login_attempts_ip_failures) as CountFailuresForIP; no
+	// additional table or migration exists for this.
+	CountTargetsForIP(ctx context.Context, ip string, since time.Time) (IPTargetCounts, error)
+}
+
+// IPTargetCounts is the result of AnomalyStore.CountTargetsForIP: how
+// many different targets one IP's recent failures were aimed at, split
+// by whether the target exists. Two numbers instead of one total
+// because they are counted differently and mean different things — see
+// security.CredentialStuffingObservations, whose fields these map onto.
+type IPTargetCounts struct {
+	// DistinctAccounts is the number of DIFFERENT existing accounts the
+	// IP failed against (COUNT(DISTINCT user_id) in SQL terms, which
+	// excludes the NULL rows counted below).
+	DistinctAccounts int
+
+	// UnknownTargetFailures is the number of failures from that IP whose
+	// target resolved to no account, i.e. rows with a NULL user_id. A
+	// count of attempts, not of distinct email addresses: the attempted
+	// address is deliberately not stored, so the same nonexistent email
+	// probed twice counts twice.
+	UnknownTargetFailures int
 }
