@@ -25,6 +25,7 @@ type Engine struct {
 	magicLinkSender notify.MagicLinkSender
 	recoveryCodes   store.RecoveryCodeStore
 	breachChecker   security.BreachedPasswordChecker
+	geolocator      security.IPGeolocator
 	passwordPolicy  security.PasswordPolicy
 	anomalies       store.AnomalyStore
 
@@ -114,6 +115,7 @@ func New(cfg Config) (*Engine, error) {
 		magicLinkSender:  cfg.MagicLinkSender,
 		recoveryCodes:    cfg.RecoveryCodes,
 		breachChecker:    cfg.BreachedPasswordChecker,
+		geolocator:       cfg.Geolocator,
 		passwordPolicy:   cfg.PasswordPolicy,
 		anomalies:        cfg.Anomalies,
 		hasher:           hasher,
