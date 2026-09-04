@@ -90,7 +90,7 @@ func TestCompleteMagicLink_ValidTokenIssuesTokens(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	tokens, err := CompleteMagicLink(ctx, users, sessions, verifications, nil, nil, nil, ids, refreshGen, jwtIssuer, pendingIssuer, audit, log, sender.rawToken, "1.2.3.4", "test-agent")
+	tokens, err := CompleteMagicLink(ctx, users, sessions, verifications, nil, nil, nil, nil, ids, refreshGen, jwtIssuer, pendingIssuer, audit, log, sender.rawToken, "1.2.3.4", "test-agent", noAnomalyThresholds)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -111,11 +111,11 @@ func TestCompleteMagicLink_TokenIsSingleUse(t *testing.T) {
 	users.Create(ctx, storeUser("user-1", "raymondproguy@dev.com", "hash"))
 	RequestMagicLink(ctx, users, verifications, sender, tokenGen, ids, limiter, audit, log, "raymondproguy@dev.com", "1.2.3.4")
 
-	if _, err := CompleteMagicLink(ctx, users, sessions, verifications, nil, nil, nil, ids, refreshGen, jwtIssuer, pendingIssuer, audit, log, sender.rawToken, "1.2.3.4", "test-agent"); err != nil {
+	if _, err := CompleteMagicLink(ctx, users, sessions, verifications, nil, nil, nil, nil, ids, refreshGen, jwtIssuer, pendingIssuer, audit, log, sender.rawToken, "1.2.3.4", "test-agent", noAnomalyThresholds); err != nil {
 		t.Fatalf("unexpected error on first use: %v", err)
 	}
 
-	_, err := CompleteMagicLink(ctx, users, sessions, verifications, nil, nil, nil, ids, refreshGen, jwtIssuer, pendingIssuer, audit, log, sender.rawToken, "1.2.3.4", "test-agent")
+	_, err := CompleteMagicLink(ctx, users, sessions, verifications, nil, nil, nil, nil, ids, refreshGen, jwtIssuer, pendingIssuer, audit, log, sender.rawToken, "1.2.3.4", "test-agent", noAnomalyThresholds)
 	if err != ErrVerificationTokenInvalid {
 		t.Errorf("expected ErrVerificationTokenInvalid on reuse, got %v", err)
 	}
@@ -143,7 +143,7 @@ func TestCompleteMagicLink_ExpiredTokenRejected(t *testing.T) {
 		ExpiresAt: time.Now().Add(-1 * time.Minute), // already expired
 	})
 
-	_, err := CompleteMagicLink(ctx, users, sessions, verifications, nil, nil, nil, ids, refreshGen, jwtIssuer, pendingIssuer, audit, log, rawToken, "1.2.3.4", "test-agent")
+	_, err := CompleteMagicLink(ctx, users, sessions, verifications, nil, nil, nil, nil, ids, refreshGen, jwtIssuer, pendingIssuer, audit, log, rawToken, "1.2.3.4", "test-agent", noAnomalyThresholds)
 	if err != ErrVerificationTokenExpired {
 		t.Errorf("expected ErrVerificationTokenExpired, got %v", err)
 	}
@@ -174,7 +174,7 @@ func TestCompleteMagicLink_WrongPurposeTokenRejected(t *testing.T) {
 		ExpiresAt: time.Now().Add(1 * time.Hour),
 	})
 
-	_, err := CompleteMagicLink(ctx, users, sessions, verifications, nil, nil, nil, ids, refreshGen, jwtIssuer, pendingIssuer, audit, log, rawToken, "1.2.3.4", "test-agent")
+	_, err := CompleteMagicLink(ctx, users, sessions, verifications, nil, nil, nil, nil, ids, refreshGen, jwtIssuer, pendingIssuer, audit, log, rawToken, "1.2.3.4", "test-agent", noAnomalyThresholds)
 	if err != ErrVerificationTokenInvalid {
 		t.Errorf("expected ErrVerificationTokenInvalid for a wrong-purpose token, got %v", err)
 	}
@@ -197,7 +197,7 @@ func TestCompleteMagicLink_AccountWithTOTPPausesForSecondFactor(t *testing.T) {
 
 	RequestMagicLink(ctx, users, verifications, sender, tokenGen, ids, limiter, audit, log, "raymondproguy@dev.com", "1.2.3.4")
 
-	_, err := CompleteMagicLink(ctx, users, sessions, verifications, totpStore, nil, nil, ids, refreshGen, jwtIssuer, pendingIssuer, audit, log, sender.rawToken, "1.2.3.4", "test-agent")
+	_, err := CompleteMagicLink(ctx, users, sessions, verifications, totpStore, nil, nil, nil, ids, refreshGen, jwtIssuer, pendingIssuer, audit, log, sender.rawToken, "1.2.3.4", "test-agent", noAnomalyThresholds)
 
 	var secondFactor *ErrSecondFactorRequired
 	if !errors.As(err, &secondFactor) {

@@ -109,6 +109,15 @@ type AnomalyThresholds struct {
 	// MaxConcurrentSessions is the active-session count a user may hold
 	// before the next login is flagged. Zero disables the check.
 	MaxConcurrentSessions int
+	// TokenReuseLookback bounds how far back a
+	// store.EventTokenReuseDetected event still counts. Separate from
+	// Window, and much longer, because the two signals live on
+	// different time scales: failure velocity is about a burst happening
+	// right now, while a stolen refresh token replayed this morning is
+	// still the most relevant thing about a login this afternoon.
+	// Unbounded would be wrong too — one reuse event would then flag
+	// every login the account ever makes again.
+	TokenReuseLookback time.Duration
 }
 
 // DefaultAnomalyThresholds is applied whenever Config.AnomalyThresholds
@@ -122,6 +131,7 @@ var DefaultAnomalyThresholds = AnomalyThresholds{
 	UserFailureVelocity:   5,
 	IPFailureVelocity:     20,
 	MaxConcurrentSessions: 10,
+	TokenReuseLookback:    24 * time.Hour,
 }
 
 // Evaluate returns every signal the attempt trips, in a stable order,

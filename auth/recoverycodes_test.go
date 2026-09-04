@@ -203,8 +203,8 @@ func TestLogin_RecoveryCodeNeverAdvertisedWithoutARealSecondFactor(t *testing.T)
 	// Login's behavior once no real factor remains).
 	totpStore.Delete(ctx, "user-1")
 
-	tokens, err := Login(ctx, users, sessions, totpStore, webauthnStore, recoveryCodeStore, hasher, ids, refreshGen, jwtIssuer, pendingIssuer, limiter, audit, log,
-		"raymondproguy@dev.com", "Tr0ubl3-Fr33!2026", "1.2.3.4", "test-agent", 5, time.Minute)
+	tokens, err := Login(ctx, users, sessions, totpStore, webauthnStore, recoveryCodeStore, nil, hasher, ids, refreshGen, jwtIssuer, pendingIssuer, limiter, audit, log,
+		"raymondproguy@dev.com", "Tr0ubl3-Fr33!2026", "1.2.3.4", "test-agent", 5, time.Minute, noAnomalyThresholds)
 	if err != nil {
 		t.Fatalf("expected direct login once no real second factor remains, got error: %v", err)
 	}
@@ -231,8 +231,8 @@ func TestLogin_ReportsRecoveryCodeAlongsideTOTP(t *testing.T) {
 	enrollAndConfirm(t, ctx, users, totpStore, audit, totpGen, enc, "user-1")
 	GenerateRecoveryCodes(ctx, totpStore, nil, recoveryCodeStore, audit, log, "user-1")
 
-	_, err := Login(ctx, users, sessions, totpStore, webauthnStore, recoveryCodeStore, hasher, ids, refreshGen, jwtIssuer, pendingIssuer, limiter, audit, log,
-		"raymondproguy@dev.com", "Tr0ubl3-Fr33!2026", "1.2.3.4", "test-agent", 5, time.Minute)
+	_, err := Login(ctx, users, sessions, totpStore, webauthnStore, recoveryCodeStore, nil, hasher, ids, refreshGen, jwtIssuer, pendingIssuer, limiter, audit, log,
+		"raymondproguy@dev.com", "Tr0ubl3-Fr33!2026", "1.2.3.4", "test-agent", 5, time.Minute, noAnomalyThresholds)
 
 	var secondFactor *ErrSecondFactorRequired
 	if !errors.As(err, &secondFactor) {
