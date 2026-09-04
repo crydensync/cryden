@@ -107,3 +107,73 @@ sensitive to CPU contention. Worth its own small branch if it recurs.
 
 Next in queue: item 9, credential-stuffing detection. `login_attempts`
 already holds the data it needs; `NEXT.md` has the updated spec.
+
+## 2026-09-04 — Credential-stuffing detection (item 9)
+
+Branch: `feat/credential-stuffing` (6 commits, unmerged, unpushed,
+branched from `feat/anomaly-detection` rather than `main` — item 9
+extends item 8's store and is not reviewable without it, so this branch
+carries item 8's commits too).
+
+Built: report-only detection of "one IP failing against many different
+accounts," the gap per-account lockout structurally cannot see. Pure
+threshold arithmetic in `security/stuffing.go`, the storage-reading pass
+plus cooldown in `auth/stuffing.go`, one new store method
+(`CountTargetsForIP` returning `store.IPTargetCounts`, memory +
+postgres, **no migration** — same rows and same partial index
+`CountFailuresForIP` already used), a `credential_stuffing_detected`
+audit event, and `Config.CredentialStuffingThresholds`. Called from
+`recordLoginFailure` (where a spray is visible at all) and from
+`completePrimaryAuth` (where a spray that landed is visible). 24 new Go
+tests, a 99-check smoke test at `cmd/smoketest/credential-stuffing`, and
+`docs/testing/credential-stuffing.md`.
+
+Assumptions made (spec left these open):
+
+- **No second on/off switch.** `Config.Anomalies` turns both detectors
+  on. This is the same `login_attempts` history read a second way, not a
+  second tracking system, and "per-IP failure velocity but specifically
+  not its breadth counterpart" is not a coherent configuration. Each
+  detector still has its own threshold struct, defaulted independently,
+  so setting `TargetAccounts` (or `Window`) to zero silences this one
+  alone — tested explicitly, in both directions.
+- **Unknown-email targets are counted as attempts, not distinct
+  targets.** `store.LoginAttempt` deliberately never records which email
+  was tried, so ten failures against one nonexistent address count as
+  ten. `Breadth()` sums real accounts and unknown-target failures; the
+  default threshold (10 targets / 1 hour) leaves headroom for the
+  overcount. The alternative — storing attempted emails — would add PII
+  the engine has no other use for.
+- **`unknown_account_spray` is a qualifier, never a standalone bar.** A
+  second independent threshold would either duplicate `account_spray` or
+  leave the mixed case (a few real accounts plus many unknown) clearing
+  neither. It fires only alongside `account_spray`, and only when
+  unknown targets strictly outnumber real ones.
+- **Ordering is the opposite of item 8's.** Breadth is measured *after*
+  the triggering attempt is recorded, so the burst being judged includes
+  it and the tenth distinct target trips a threshold of ten at ten. Item
+  8 reads its baseline *before* recording, so an attempt never appears
+  in its own history. Both are deliberate; the comments say so at each
+  call site.
+- **`Cooldown` (default 15m) collapses a sustained spray into one event
+  per IP**, decided by a bounded 50-event newest-first `SearchByType`
+  scan that fails open. Without it a spray writes one audit row per
+  failed attempt. A duplicate event is the acceptable failure direction;
+  a missed attack is not.
+
+Verification: `go build ./...`, `go vet ./...` and `go test ./...` all
+run clean here, and the smoke test passes all 99 checks. Postgres was
+not exercised — no database in this environment, so
+`CountTargetsForIP`'s `COUNT(DISTINCT user_id)` /
+`COUNT(*) FILTER (WHERE user_id IS NULL)` query is reviewed-and-compiled
+only; sections 1-2 of the manual test guide cover checking it against a
+real one.
+
+The `TestLogin_NonexistentUserTimingMatchesWrongPassword` flake noted in
+item 8's entry recurred once here (ratio 0.29 under load, then 6 clean
+isolated runs and a clean full suite). Confirmed unrelated to this item
+by running the same test on `ed7de90~1` in a throwaway worktree. Still
+pre-existing, still unfixed, still worth its own small branch.
+
+Next in queue: item 10, named/fingerprinted sessions — the item where
+`NEXT.md` explicitly expects a documented judgment call.
