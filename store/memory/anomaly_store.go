@@ -60,6 +60,38 @@ func (s *AnomalyStore) CountFailuresForIP(ctx context.Context, ip string, since 
 	return s.countFailures(func(a store.LoginAttempt) bool { return a.IP == ip }, since), nil
 }
 
+// CountTargetsForIP walks the same rows CountFailuresForIP does, but
+// counts targets instead of attempts: existing accounts are
+// de-duplicated (one account hammered ten times is one target), while
+// attempts against unknown emails are not, because store.LoginAttempt
+// never records which email was tried and there is nothing to
+// de-duplicate on.
+func (s *AnomalyStore) CountTargetsForIP(ctx context.Context, ip string, since time.Time) (store.IPTargetCounts, error) {
+	if ip == "" {
+		return store.IPTargetCounts{}, nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var counts store.IPTargetCounts
+	seen := make(map[string]struct{})
+	for _, a := range s.attempts {
+		if a.Outcome != store.OutcomeFailure || a.IP != ip || a.CreatedAt.Before(since) {
+			continue
+		}
+		if a.UserID == "" {
+			counts.UnknownTargetFailures++
+			continue
+		}
+		if _, ok := seen[a.UserID]; !ok {
+			seen[a.UserID] = struct{}{}
+			counts.DistinctAccounts++
+		}
+	}
+	return counts, nil
+}
+
 func (s *AnomalyStore) countFailures(match func(store.LoginAttempt) bool, since time.Time) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
