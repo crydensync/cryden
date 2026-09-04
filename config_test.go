@@ -199,3 +199,27 @@ func TestNew_TheTwoDetectionThresholdsDefaultIndependently(t *testing.T) {
 		t.Errorf("a custom CredentialStuffingThresholds must leave anomaly defaults alone, got %+v", e.anomalyThresholds)
 	}
 }
+
+// Geolocation is off until a host supplies an implementation, exactly
+// like BreachedPasswordChecker — the engine ships none.
+func TestNew_GeolocationIsOffWithoutAnImplementation(t *testing.T) {
+	e, err := New(validConfig())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if e.geolocator != nil {
+		t.Error("expected no IPGeolocator when Config.Geolocator is unset")
+	}
+}
+
+func TestNew_AcceptsAGeolocator(t *testing.T) {
+	cfg := validConfig()
+	cfg.Geolocator = fixedGeolocator{}
+	e, err := New(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if e.geolocator == nil {
+		t.Error("expected Config.Geolocator to reach the engine")
+	}
+}

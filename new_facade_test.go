@@ -2,8 +2,10 @@ package cryden
 
 import (
 	"context"
+	"errors"
 	"testing"
 
+	"github.com/crydensync/cryden/v2/security"
 	"github.com/crydensync/cryden/v2/store"
 	"github.com/crydensync/cryden/v2/store/memory"
 )
@@ -132,5 +134,103 @@ func TestStore_SearchByType_Memory(t *testing.T) {
 		if e.Type != store.EventTokenReuseDetected {
 			t.Errorf("expected only token_reuse_detected events, got %s", e.Type)
 		}
+	}
+}
+
+// The User-Agent a real browser would send, so the label under test is
+// the one a real session list would show.
+const chromeWindowsUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+
+// fixedGeolocator is the shape a host app supplies: one Locate call,
+// its own data source, no engine involvement. err wins when set, to
+// exercise the fail-open path end to end.
+type fixedGeolocator struct {
+	loc security.Location
+	err error
+}
+
+func (g fixedGeolocator) Locate(_ context.Context, _ string) (security.Location, error) {
+	return g.loc, g.err
+}
+
+var _ security.IPGeolocator = fixedGeolocator{}
+
+func seedLoggedInUser(ctx context.Context, e *Engine, t *testing.T, userAgent string) string {
+	t.Helper()
+	if _, err := SignUp(ctx, e, "raymondproguy@dev.com", "Tr0ubl3-Fr33!2026", "1.2.3.4"); err != nil {
+		t.Fatalf("signup failed: %v", err)
+	}
+	if _, err := Login(ctx, e, "raymondproguy@dev.com", "Tr0ubl3-Fr33!2026", "1.2.3.4", userAgent); err != nil {
+		t.Fatalf("login failed: %v", err)
+	}
+	u, err := GetUser(ctx, e, "raymondproguy@dev.com")
+	if err != nil {
+		t.Fatalf("user lookup failed: %v", err)
+	}
+	return u.ID
+}
+
+func TestListNamedSessions_LabelsTheSessionLoginCreated(t *testing.T) {
+	cfg := validConfig()
+	cfg.Geolocator = fixedGeolocator{loc: security.Location{City: "San Francisco", Region: "CA"}}
+	engine, err := New(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	ctx := context.Background()
+	userID := seedLoggedInUser(ctx, engine, t, chromeWindowsUA)
+
+	list, err := ListNamedSessions(ctx, engine, userID)
+	if err != nil {
+		t.Fatalf("ListNamedSessions failed: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("expected 1 named session, got %d", len(list))
+	}
+	if list[0].Label != "Chrome on Windows — San Francisco, CA" {
+		t.Errorf("unexpected label: %q", list[0].Label)
+	}
+	// Nothing was stored to make this label: it came from the IP and
+	// User-Agent Login already recorded on the session.
+	if list[0].IP != "1.2.3.4" || list[0].UserAgent != chromeWindowsUA {
+		t.Errorf("expected the raw values to stay available, got %+v", list[0].PublicSession)
+	}
+}
+
+func TestListNamedSessions_WorksWithoutAGeolocator(t *testing.T) {
+	engine, err := New(validConfig())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	ctx := context.Background()
+	userID := seedLoggedInUser(ctx, engine, t, chromeWindowsUA)
+
+	list, err := ListNamedSessions(ctx, engine, userID)
+	if err != nil {
+		t.Fatalf("ListNamedSessions failed: %v", err)
+	}
+	if list[0].Label != "Chrome on Windows" {
+		t.Errorf("expected a device-only label with no geolocator configured, got %q", list[0].Label)
+	}
+}
+
+// The listing is how someone revokes a session they don't recognize, so
+// a broken geolocator must never be able to take it away from them.
+func TestListNamedSessions_SurvivesAFailingGeolocator(t *testing.T) {
+	cfg := validConfig()
+	cfg.Geolocator = fixedGeolocator{err: errors.New("provider unreachable")}
+	engine, err := New(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	ctx := context.Background()
+	userID := seedLoggedInUser(ctx, engine, t, chromeWindowsUA)
+
+	list, err := ListNamedSessions(ctx, engine, userID)
+	if err != nil {
+		t.Fatalf("expected the listing to survive a geolocator error, got %v", err)
+	}
+	if len(list) != 1 || list[0].Label != "Chrome on Windows" {
+		t.Errorf("expected a device-only label, got %+v", list)
 	}
 }
