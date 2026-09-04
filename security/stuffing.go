@@ -85,6 +85,11 @@ type CredentialStuffingThresholds struct {
 	// accumulates more slowly than volume: a patient sprayer at one
 	// attempt a minute never trips a 15-minute velocity threshold, yet
 	// is unmistakable across an hour.
+	//
+	// Non-positive disables detection outright, the same as a zero
+	// TargetAccounts below: there is no span of history to judge, and
+	// counting over an empty range would report a clean result rather
+	// than an unconfigured one.
 	Window time.Duration
 
 	// TargetAccounts is the Breadth() count within Window that flags

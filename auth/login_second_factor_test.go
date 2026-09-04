@@ -32,7 +32,7 @@ func TestLogin_WebAuthnOnlyReportsWebAuthnMethod(t *testing.T) {
 	registerRealPasskeyForUser(t, ctx, users, webauthnStore, provider, enc, ids, audit, "user-1")
 
 	_, err := Login(ctx, users, sessions, nil, webauthnStore, nil, nil, hasher, ids, refreshGen, jwtIssuer, pendingIssuer, limiter, audit, log,
-		"raymondproguy@dev.com", "Tr0ubl3-Fr33!2026", "1.2.3.4", "test-agent", 5, time.Minute, noAnomalyThresholds)
+		"raymondproguy@dev.com", "Tr0ubl3-Fr33!2026", "1.2.3.4", "test-agent", 5, time.Minute, noAnomalyThresholds, noStuffingThresholds)
 
 	var secondFactor *ErrSecondFactorRequired
 	if !errors.As(err, &secondFactor) {
@@ -67,7 +67,7 @@ func TestLogin_TOTPAndWebAuthnBothReportBothMethods(t *testing.T) {
 	registerRealPasskeyForUser(t, ctx, users, webauthnStore, provider, enc, ids, audit, "user-1")
 
 	_, err := Login(ctx, users, sessions, totpStore, webauthnStore, nil, nil, hasher, ids, refreshGen, jwtIssuer, pendingIssuer, limiter, audit, log,
-		"raymondproguy@dev.com", "Tr0ubl3-Fr33!2026", "1.2.3.4", "test-agent", 5, time.Minute, noAnomalyThresholds)
+		"raymondproguy@dev.com", "Tr0ubl3-Fr33!2026", "1.2.3.4", "test-agent", 5, time.Minute, noAnomalyThresholds, noStuffingThresholds)
 
 	var secondFactor *ErrSecondFactorRequired
 	if !errors.As(err, &secondFactor) {
@@ -111,7 +111,7 @@ func TestLogin_NoSecondFactorEnrolledIssuesTokensDirectly(t *testing.T) {
 	users.Create(ctx, storeUser("user-1", "raymondproguy@dev.com", hash))
 
 	tokens, err := Login(ctx, users, sessions, totpStore, webauthnStore, nil, nil, hasher, ids, refreshGen, jwtIssuer, pendingIssuer, limiter, audit, log,
-		"raymondproguy@dev.com", "Tr0ubl3-Fr33!2026", "1.2.3.4", "test-agent", 5, time.Minute, noAnomalyThresholds)
+		"raymondproguy@dev.com", "Tr0ubl3-Fr33!2026", "1.2.3.4", "test-agent", 5, time.Minute, noAnomalyThresholds, noStuffingThresholds)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

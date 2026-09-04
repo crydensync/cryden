@@ -57,7 +57,7 @@ func TestLogin_WithConfirmedTOTPReturnsErrSecondFactorRequired(t *testing.T) {
 	enrollAndConfirm(t, ctx, users, totpStore, audit, totpGen, enc, "user-1")
 
 	tokens, err := Login(ctx, users, sessions, totpStore, nil, nil, nil, hasher, ids, refreshGen, jwtIssuer, pendingIssuer, limiter, audit, log,
-		"raymondproguy@dev.com", "Tr0ubl3-Fr33!2026", "1.2.3.4", "test-agent", 5, time.Minute, noAnomalyThresholds)
+		"raymondproguy@dev.com", "Tr0ubl3-Fr33!2026", "1.2.3.4", "test-agent", 5, time.Minute, noAnomalyThresholds, noStuffingThresholds)
 
 	var totpRequired *ErrSecondFactorRequired
 	if !errors.As(err, &totpRequired) {
@@ -82,7 +82,7 @@ func TestLogin_WithoutTOTPConfiguredIssuesTokensDirectly(t *testing.T) {
 	users.Create(ctx, storeUser("user-1", "raymondproguy@dev.com", hash))
 
 	tokens, err := Login(ctx, users, sessions, totpStore, nil, nil, nil, hasher, ids, refreshGen, jwtIssuer, pendingIssuer, limiter, audit, log,
-		"raymondproguy@dev.com", "Tr0ubl3-Fr33!2026", "1.2.3.4", "test-agent", 5, time.Minute, noAnomalyThresholds)
+		"raymondproguy@dev.com", "Tr0ubl3-Fr33!2026", "1.2.3.4", "test-agent", 5, time.Minute, noAnomalyThresholds, noStuffingThresholds)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestLogin_UnconfirmedTOTPDoesNotGateLogin(t *testing.T) {
 	}
 
 	tokens, err := Login(ctx, users, sessions, totpStore, nil, nil, nil, hasher, ids, refreshGen, jwtIssuer, pendingIssuer, limiter, audit, log,
-		"raymondproguy@dev.com", "Tr0ubl3-Fr33!2026", "1.2.3.4", "test-agent", 5, time.Minute, noAnomalyThresholds)
+		"raymondproguy@dev.com", "Tr0ubl3-Fr33!2026", "1.2.3.4", "test-agent", 5, time.Minute, noAnomalyThresholds, noStuffingThresholds)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestCompleteLoginWithTOTP_CorrectCodeIssuesTokens(t *testing.T) {
 	secret := enrollAndConfirm(t, ctx, users, totpStore, audit, totpGen, enc, "user-1")
 
 	_, err := Login(ctx, users, sessions, totpStore, nil, nil, nil, hasher, ids, refreshGen, jwtIssuer, pendingIssuer, limiter, audit, log,
-		"raymondproguy@dev.com", "Tr0ubl3-Fr33!2026", "1.2.3.4", "test-agent", 5, time.Minute, noAnomalyThresholds)
+		"raymondproguy@dev.com", "Tr0ubl3-Fr33!2026", "1.2.3.4", "test-agent", 5, time.Minute, noAnomalyThresholds, noStuffingThresholds)
 	var totpRequired *ErrSecondFactorRequired
 	if !errors.As(err, &totpRequired) {
 		t.Fatalf("expected *ErrSecondFactorRequired, got %v", err)
@@ -152,7 +152,7 @@ func TestCompleteLoginWithTOTP_WrongCodeRejected(t *testing.T) {
 	enrollAndConfirm(t, ctx, users, totpStore, audit, totpGen, enc, "user-1")
 
 	_, err := Login(ctx, users, sessions, totpStore, nil, nil, nil, hasher, ids, refreshGen, jwtIssuer, pendingIssuer, limiter, audit, log,
-		"raymondproguy@dev.com", "Tr0ubl3-Fr33!2026", "1.2.3.4", "test-agent", 5, time.Minute, noAnomalyThresholds)
+		"raymondproguy@dev.com", "Tr0ubl3-Fr33!2026", "1.2.3.4", "test-agent", 5, time.Minute, noAnomalyThresholds, noStuffingThresholds)
 	var totpRequired *ErrSecondFactorRequired
 	errors.As(err, &totpRequired)
 

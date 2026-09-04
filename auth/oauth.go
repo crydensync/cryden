@@ -61,6 +61,7 @@ func LoginWithOAuth(
 	callerIP string,
 	userAgent string,
 	anomalyThresholds security.AnomalyThresholds,
+	stuffingThresholds security.CredentialStuffingThresholds,
 ) (Tokens, error) {
 	identity, err := oauth.GetByProviderID(ctx, provider, externalID)
 	switch {
@@ -120,7 +121,7 @@ func LoginWithOAuth(
 	if err != nil {
 		return Tokens{}, err
 	}
-	return completePrimaryAuth(ctx, sessions, totpStore, webauthnStore, recoveryCodeStore, anomalies, ids, refreshGen, jwtIssuer, pendingIssuer, audit, log, anomalyThresholds, user, callerIP, userAgent, map[string]string{"provider": provider})
+	return completePrimaryAuth(ctx, sessions, totpStore, webauthnStore, recoveryCodeStore, anomalies, ids, refreshGen, jwtIssuer, pendingIssuer, audit, log, anomalyThresholds, stuffingThresholds, user, callerIP, userAgent, map[string]string{"provider": provider})
 }
 
 // LinkOAuthIdentity attaches a confirmed external identity to an

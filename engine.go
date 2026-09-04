@@ -43,7 +43,8 @@ type Engine struct {
 	lockoutThreshold int
 	lockoutDuration  time.Duration
 
-	anomalyThresholds security.AnomalyThresholds
+	anomalyThresholds  security.AnomalyThresholds
+	stuffingThresholds security.CredentialStuffingThresholds
 }
 
 // New validates cfg, applies defaults for unset tuning knobs, and
@@ -130,6 +131,7 @@ func New(cfg Config) (*Engine, error) {
 		lockoutThreshold: cfg.LockoutThreshold,
 		lockoutDuration:  cfg.LockoutDuration,
 
-		anomalyThresholds: cfg.AnomalyThresholds,
+		anomalyThresholds:  cfg.AnomalyThresholds,
+		stuffingThresholds: cfg.CredentialStuffingThresholds,
 	}, nil
 }
