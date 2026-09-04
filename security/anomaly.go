@@ -52,10 +52,9 @@ type LoginAttemptContext struct {
 
 // AnomalyObservations is the history snapshot Evaluate judges an
 // attempt against — the whole storage-facing side of detection reduced
-// to plain numbers and strings. Whoever gathers this (see
-// auth.DetectLoginAnomalies) owns the queries; Evaluate never reads
-// anything itself, which is what makes the thresholds testable without
-// a store at all.
+// to plain numbers and strings. Whoever gathers this (the detector in
+// package auth) owns the queries; Evaluate never reads anything itself,
+// which is what makes the thresholds testable without a store at all.
 type AnomalyObservations struct {
 	// KnownIPs and KnownUserAgents come from the user's recent
 	// SUCCESSFUL logins only. A failed attempt from an IP must never
