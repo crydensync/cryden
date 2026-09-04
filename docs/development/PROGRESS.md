@@ -177,3 +177,78 @@ pre-existing, still unfixed, still worth its own small branch.
 
 Next in queue: item 10, named/fingerprinted sessions — the item where
 `NEXT.md` explicitly expects a documented judgment call.
+
+## 2026-09-04 — Named/fingerprinted sessions (item 10)
+
+Branch: `feat/named-sessions` (7 commits, unmerged, unpushed, branched
+from `feat/credential-stuffing` at `36690bf` — the tip of the chain, so
+this branch carries items 8, 9 and 10).
+
+Built: a human-readable label for each active session —
+"Chrome on Windows — San Francisco, CA" instead of a UUID — for a "your
+devices" settings page. `security/useragent.go` parses the device half
+(`Device`, `ParseUserAgent`, the `Form*` constants), `security/
+geolocation.go` defines the location half as an interface with **zero
+implementations** (`IPGeolocator`, `Location`), `session/named.go`
+composes them (`NamedSession`, the exported `Label`, `ListNamed`), and
+the facade exposes `ListNamedSessions` plus `Config.Geolocator`. No store
+change, no migration, no new query.
+
+`NEXT.md` flagged this as the vaguest item in the backlog and asked for
+the reasoning in writing, so:
+
+- **Labels are computed on read, not stored.** The `IP` and `UserAgent`
+  needed are already on `store.Session`. Storing a derived string would
+  add a column, a migration and a backfill to own a value that can be
+  recomputed for free — and would freeze old sessions at whatever the
+  parser knew on the day they were created. As built, every session ever
+  recorded gets a label the first time it's listed, and improving the
+  parser improves history retroactively. The smoke test checks exactly
+  this by listing the same stored session from two engines.
+- **The user-agent parser ships for real, with no swap interface.**
+  `NEXT.md` left this open. Parsing is pure string matching over data the
+  engine already holds, so the "engine never reaches outward" rule
+  doesn't apply, and an interface with no implementation would ship a
+  feature that does nothing by default. A host wanting a different
+  library runs it over `store.Session.UserAgent`, which stays exposed
+  verbatim — so the escape hatch already exists without a second
+  interface to configure.
+- **Geolocation is interface-only, `Config.Geolocator`, zero shipped
+  implementations** — the `BreachedPasswordChecker` rule, unchanged.
+  This is the half the engine structurally cannot compute. I kept it in
+  the engine rather than pushing it entirely to the host app (the
+  alternative `NEXT.md` offered) because the composition is the feature:
+  a label needs both halves in one string, and leaving location at the
+  host layer means every host re-implements label formatting. The
+  interface is one method and costs nothing to leave nil.
+- **`Location` granularity is the host's choice.** `String()` joins the
+  non-empty fields with ", " and does nothing else — no abbreviating,
+  no expanding, no inferring a country from a region. A host filling in
+  City+Region gets "San Francisco, CA"; adding Country gets
+  "San Francisco, CA, US".
+- **Fails open, and asks once per distinct IP per call.** A geolocator
+  error is logged and treated as "location unknown"; the listing itself
+  never fails, because that list is how someone revokes an attacker's
+  session. The per-call cache (not per-process) avoids N lookups for a
+  laptop and phone on one address without owning an invalidation story.
+- **No user-editable nicknames.** "Named" here means engine-derived. A
+  host that wants "Ray's work laptop" stores that itself keyed by session
+  ID; adding a display-name column would be a storage feature wearing
+  this item's name.
+- **No version numbers in labels**, and bots/CLI clients report no OS —
+  "Bingbot on Windows" would be a device claim a bot's UA can't support.
+
+Verification: `gofmt -l .` clean, `go build ./...`, `go vet ./...` and
+`go test ./...` all run clean here, and the smoke test passes all 42
+checks. Nothing in this item touches storage, so there is no Postgres
+path left unexercised — `ListByUser` is the only store call involved and
+it predates this work. The parser is tested against authentic
+User-Agent strings rather than invented ones, since the only real risk
+in it is browsers impersonating each other inside the header (the CUBOT
+case is why the generic bot heuristic runs after browser matching).
+
+The `TestLogin_NonexistentUserTimingMatchesWrongPassword` flake noted in
+items 8 and 9 did not recur this session. Still unfixed, still worth its
+own small branch.
+
+Next in queue: item 11, the Redis-backed rate limiter.
