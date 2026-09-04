@@ -79,7 +79,7 @@ func (d *anomalyDeps) login(ctx context.Context, anomalies store.AnomalyStore, p
 func (d *anomalyDeps) loginWith(ctx context.Context, anomalies store.AnomalyStore, thresholds security.AnomalyThresholds, password, ip, agent string) (Tokens, error) {
 	return Login(ctx, d.users, d.sessions, nil, nil, nil, anomalies,
 		d.hasher, d.ids, d.refresh, d.jwt, nil, d.limiter, d.audit, d.log,
-		"raymondproguy@dev.com", password, ip, agent, 100, time.Minute, thresholds)
+		"raymondproguy@dev.com", password, ip, agent, 100, time.Minute, thresholds, noStuffingThresholds)
 }
 
 func countEvents(t *testing.T, audit *memory.AuditStore, userID string, typ store.AuditEventType) []store.AuditEvent {
@@ -257,7 +257,7 @@ func TestDetectLoginAnomalies_FailuresFromOneIPCountAcrossAccounts(t *testing.T)
 	for i := 0; i < 5; i++ {
 		_, err := Login(ctx, d.users, d.sessions, nil, nil, nil, d.anomalies,
 			d.hasher, d.ids, d.refresh, d.jwt, nil, d.limiter, d.audit, d.log,
-			"nobody@dev.com", "guess", "1.2.3.4", "test-agent", 100, time.Minute, anomalyTestThresholds)
+			"nobody@dev.com", "guess", "1.2.3.4", "test-agent", 100, time.Minute, anomalyTestThresholds, noStuffingThresholds)
 		if err != ErrInvalidCredentials {
 			t.Fatalf("attempt %d: expected ErrInvalidCredentials, got %v", i, err)
 		}
@@ -420,7 +420,7 @@ func TestDetectLoginAnomalies_CoversOAuthPath(t *testing.T) {
 		t.Helper()
 		if _, err := LoginWithOAuth(ctx, d.users, oauth, d.sessions, nil, nil, nil, d.anomalies,
 			d.ids, d.refresh, d.jwt, nil, d.audit, d.log,
-			"google", "google-ext-id-1", "raymondproguy@dev.com", ip, agent, anomalyTestThresholds); err != nil {
+			"google", "google-ext-id-1", "raymondproguy@dev.com", ip, agent, anomalyTestThresholds, noStuffingThresholds); err != nil {
 			t.Fatalf("OAuth login from %s failed: %v", ip, err)
 		}
 	}
@@ -460,7 +460,7 @@ func TestDetectLoginAnomalies_CoversMagicLinkPath(t *testing.T) {
 		}
 		if _, err := CompleteMagicLink(ctx, d.users, d.sessions, verifications, nil, nil, nil, d.anomalies,
 			d.ids, d.refresh, d.jwt, nil, d.audit, d.log,
-			sender.rawToken, ip, agent, anomalyTestThresholds); err != nil {
+			sender.rawToken, ip, agent, anomalyTestThresholds, noStuffingThresholds); err != nil {
 			t.Fatalf("CompleteMagicLink from %s failed: %v", ip, err)
 		}
 	}
@@ -498,6 +498,10 @@ func (failingAnomalyStore) CountFailuresForUser(ctx context.Context, userID stri
 
 func (failingAnomalyStore) CountFailuresForIP(ctx context.Context, ip string, since time.Time) (int, error) {
 	return 0, errors.New("anomaly store unavailable")
+}
+
+func (failingAnomalyStore) CountTargetsForIP(ctx context.Context, ip string, since time.Time) (store.IPTargetCounts, error) {
+	return store.IPTargetCounts{}, errors.New("anomaly store unavailable")
 }
 
 // A detector that can lock people out of their own accounts when its

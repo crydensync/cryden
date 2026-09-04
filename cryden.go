@@ -33,7 +33,7 @@ func SignUp(ctx context.Context, e *Engine, email, password, callerIP string) (s
 // and the list of enrolled methods; complete via CompleteLoginWithTOTP
 // or BeginWebAuthnLogin/CompleteLoginWithWebAuthn accordingly.
 func Login(ctx context.Context, e *Engine, email, password, callerIP, userAgent string) (Tokens, error) {
-	return auth.Login(ctx, e.users, e.sessions, e.totp, e.webauthn, e.recoveryCodes, e.anomalies, e.hasher, e.ids, e.refreshGen, e.jwtIssuer, e.pendingIssuer, e.rateLimiter, e.audit, e.log, email, password, callerIP, userAgent, e.lockoutThreshold, e.lockoutDuration, e.anomalyThresholds)
+	return auth.Login(ctx, e.users, e.sessions, e.totp, e.webauthn, e.recoveryCodes, e.anomalies, e.hasher, e.ids, e.refreshGen, e.jwtIssuer, e.pendingIssuer, e.rateLimiter, e.audit, e.log, email, password, callerIP, userAgent, e.lockoutThreshold, e.lockoutDuration, e.anomalyThresholds, e.stuffingThresholds)
 }
 
 // ChangePassword requires the caller's current password as
@@ -86,7 +86,7 @@ func LoginWithOAuth(ctx context.Context, e *Engine, provider, externalID, email,
 	if e.oauth == nil {
 		return Tokens{}, ErrOAuthNotConfigured
 	}
-	return auth.LoginWithOAuth(ctx, e.users, e.oauth, e.sessions, e.totp, e.webauthn, e.recoveryCodes, e.anomalies, e.ids, e.refreshGen, e.jwtIssuer, e.pendingIssuer, e.audit, e.log, provider, externalID, email, callerIP, userAgent, e.anomalyThresholds)
+	return auth.LoginWithOAuth(ctx, e.users, e.oauth, e.sessions, e.totp, e.webauthn, e.recoveryCodes, e.anomalies, e.ids, e.refreshGen, e.jwtIssuer, e.pendingIssuer, e.audit, e.log, provider, externalID, email, callerIP, userAgent, e.anomalyThresholds, e.stuffingThresholds)
 }
 
 // LinkOAuthIdentity attaches a confirmed external identity to an
@@ -356,7 +356,7 @@ func CompleteMagicLink(ctx context.Context, e *Engine, rawToken, callerIP, userA
 	if e.magicLinkSender == nil {
 		return Tokens{}, ErrMagicLinkNotConfigured
 	}
-	return auth.CompleteMagicLink(ctx, e.users, e.sessions, e.verifications, e.totp, e.webauthn, e.recoveryCodes, e.anomalies, e.ids, e.refreshGen, e.jwtIssuer, e.pendingIssuer, e.audit, e.log, rawToken, callerIP, userAgent, e.anomalyThresholds)
+	return auth.CompleteMagicLink(ctx, e.users, e.sessions, e.verifications, e.totp, e.webauthn, e.recoveryCodes, e.anomalies, e.ids, e.refreshGen, e.jwtIssuer, e.pendingIssuer, e.audit, e.log, rawToken, callerIP, userAgent, e.anomalyThresholds, e.stuffingThresholds)
 }
 
 // ErrRecoveryCodesNotConfigured is returned by GenerateRecoveryCodes
