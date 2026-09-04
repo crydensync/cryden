@@ -150,6 +150,24 @@ type Config struct {
 	LockoutThreshold       int           // default: 5 failed attempts
 	LockoutDuration        time.Duration // default: 15 minutes
 	Logger                 logger.Logger // default: ConsoleJSONLogger
+
+	// RateLimiter replaces the default limiter, which is an in-process
+	// security.InMemoryRateLimiter built from RateLimitAttempts and
+	// RateLimitWindow above. That default is correct for exactly one
+	// process: run three replicas behind a load balancer and each keeps
+	// its own counters, so the effective limit is three times what was
+	// configured. Set this to a shared implementation —
+	// security.NewRedisRateLimiter(client, attempts, window) — and every
+	// replica counts against one window.
+	//
+	// Injected already constructed, the same as every store, so the
+	// engine never dials Redis itself or owns its lifecycle. When set,
+	// RateLimitAttempts and RateLimitWindow are ignored entirely: they
+	// are the in-memory limiter's constructor arguments, and a limiter
+	// the host built already carries its own bounds.
+	//
+	// Left nil, nothing changes from previous versions.
+	RateLimiter security.RateLimiter
 }
 
 func (c *Config) validate() error {
