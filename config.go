@@ -168,6 +168,28 @@ type Config struct {
 	//
 	// Left nil, nothing changes from previous versions.
 	RateLimiter security.RateLimiter
+
+	// Hasher replaces the default password hasher, which is a
+	// security.BcryptHasher built from BcryptCost above. Set it to
+	// security.NewArgon2idHasher(params) to write new hashes with
+	// Argon2id instead — memory-hard, and the current recommendation for
+	// new deployments.
+	//
+	// Switching is safe at any time and needs no migration. The engine
+	// wraps whatever it is given in a security.MultiHasher, which picks
+	// the verifier from each stored hash's own format, so bcrypt hashes
+	// already in your users table keep working untouched. A successful
+	// login on an out-of-date hash rewrites it with this hasher — that is
+	// how a user base actually finishes migrating — and records a
+	// store.EventPasswordHashUpgraded audit event when it does.
+	//
+	// Injected already constructed, like every store, so cost parameters
+	// stay where they can be tuned to your own hardware. When set,
+	// BcryptCost is ignored: it is the default hasher's constructor
+	// argument, and a hasher the host built already carries its own cost.
+	//
+	// Left nil, nothing changes from previous versions.
+	Hasher security.Hasher
 }
 
 func (c *Config) validate() error {
