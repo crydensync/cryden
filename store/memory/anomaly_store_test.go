@@ -152,3 +152,64 @@ func TestAnomalyStore_UnknownUserIsEmptyNotAnError(t *testing.T) {
 		t.Fatalf("expected no history for an unknown user, got %d", len(got))
 	}
 }
+
+// CountTargetsForIP answers a different question from
+// CountFailuresForIP over the same rows: how wide the spray was, not how
+// many attempts it took.
+func TestAnomalyStore_CountTargetsForIPSeparatesKnownFromUnknown(t *testing.T) {
+	ctx := context.Background()
+	s := NewAnomalyStore()
+
+	// user-1 hammered four times — one target, not four.
+	for i := 0; i < 4; i++ {
+		_ = s.RecordAttempt(ctx, store.LoginAttempt{UserID: "user-1", IP: "7.7.7.7", Outcome: store.OutcomeFailure})
+	}
+	_ = s.RecordAttempt(ctx, store.LoginAttempt{UserID: "user-2", IP: "7.7.7.7", Outcome: store.OutcomeFailure})
+	// Two attempts against addresses that match no account. These have
+	// no user ID to de-duplicate on, so both count.
+	_ = s.RecordAttempt(ctx, store.LoginAttempt{IP: "7.7.7.7", Outcome: store.OutcomeFailure})
+	_ = s.RecordAttempt(ctx, store.LoginAttempt{IP: "7.7.7.7", Outcome: store.OutcomeFailure})
+	// Noise: a success from the same address, and another address
+	// entirely.
+	_ = s.RecordAttempt(ctx, store.LoginAttempt{UserID: "user-3", IP: "7.7.7.7", Outcome: store.OutcomeSuccess})
+	_ = s.RecordAttempt(ctx, store.LoginAttempt{UserID: "user-4", IP: "8.8.8.8", Outcome: store.OutcomeFailure})
+
+	counts, err := s.CountTargetsForIP(ctx, "7.7.7.7", time.Now().Add(-time.Minute))
+	if err != nil {
+		t.Fatalf("CountTargetsForIP failed: %v", err)
+	}
+	if counts.DistinctAccounts != 2 {
+		t.Fatalf("expected 2 distinct accounts (user-1 counted once), got %d", counts.DistinctAccounts)
+	}
+	if counts.UnknownTargetFailures != 2 {
+		t.Fatalf("expected 2 unknown-target failures, got %d", counts.UnknownTargetFailures)
+	}
+
+	// Same rows, different question: seven failures, four targets.
+	if n, _ := s.CountFailuresForIP(ctx, "7.7.7.7", time.Now().Add(-time.Minute)); n != 7 {
+		t.Fatalf("expected 7 failures from the address, got %d", n)
+	}
+}
+
+func TestAnomalyStore_CountTargetsForIPIsWindowedAndGuarded(t *testing.T) {
+	ctx := context.Background()
+	s := NewAnomalyStore()
+
+	_ = s.RecordAttempt(ctx, store.LoginAttempt{UserID: "user-1", IP: "7.7.7.7", Outcome: store.OutcomeFailure})
+	_ = s.RecordAttempt(ctx, store.LoginAttempt{IP: "7.7.7.7", Outcome: store.OutcomeFailure})
+
+	future := time.Now().Add(time.Minute)
+	counts, _ := s.CountTargetsForIP(ctx, "7.7.7.7", future)
+	if counts.DistinctAccounts != 0 || counts.UnknownTargetFailures != 0 {
+		t.Fatalf("a window opening after the attempts must see nothing, got %+v", counts)
+	}
+
+	// An empty IP is not a subject to accumulate breadth against.
+	counts, err := s.CountTargetsForIP(ctx, "", time.Now().Add(-time.Minute))
+	if err != nil {
+		t.Fatalf("an empty IP should not be an error: %v", err)
+	}
+	if counts.DistinctAccounts != 0 || counts.UnknownTargetFailures != 0 {
+		t.Fatalf("an empty IP must count nothing, got %+v", counts)
+	}
+}
