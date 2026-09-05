@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"math"
 	"testing"
 	"time"
 
@@ -92,15 +93,33 @@ func TestLogin_NonexistentUserTimingMatchesWrongPassword(t *testing.T) {
 	hash, _ := hasher.Hash("correct-password")
 	users.Create(ctx, storeUser("user-1", "proguy@example.com", hash))
 
-	start := time.Now()
-	Login(ctx, users, sessions, nil, nil, nil, nil, hasher, ids, refreshGen, jwtIssuer, nil, limiter, audit, log,
-		"proguy@example.com", "wrong-password", "1.2.3.4", "test-agent", 5, time.Minute, noAnomalyThresholds, noStuffingThresholds)
-	wrongPasswordDuration := time.Since(start)
+	// Fastest of several attempts per path, not one sample each. A
+	// single bcrypt hash at cost 4 takes a couple of milliseconds, so
+	// one scheduling hiccup on either sample is enough to move the
+	// ratio by more than the margin below — and it did, roughly one
+	// full-suite run in five. Noise only ever adds time, so the minimum
+	// is the closest estimate of the real work done, and it is the
+	// regression this test exists to catch: remove the dummy hash and
+	// the nonexistent-user path's floor collapses to microseconds.
+	//
+	// The lockout threshold is deliberately far out of reach here: a
+	// locked account returns before hasher.Compare, which would make
+	// every sample after the fifth measure nothing at all.
+	fastestLogin := func(email, password string) time.Duration {
+		fastest := time.Duration(math.MaxInt64)
+		for i := 0; i < 5; i++ {
+			start := time.Now()
+			Login(ctx, users, sessions, nil, nil, nil, nil, hasher, ids, refreshGen, jwtIssuer, nil, limiter, audit, log,
+				email, password, "1.2.3.4", "test-agent", 1000, time.Minute, noAnomalyThresholds, noStuffingThresholds)
+			if elapsed := time.Since(start); elapsed < fastest {
+				fastest = elapsed
+			}
+		}
+		return fastest
+	}
 
-	start = time.Now()
-	Login(ctx, users, sessions, nil, nil, nil, nil, hasher, ids, refreshGen, jwtIssuer, nil, limiter, audit, log,
-		"nobody@example.com", "any-password", "1.2.3.4", "test-agent", 5, time.Minute, noAnomalyThresholds, noStuffingThresholds)
-	nonexistentUserDuration := time.Since(start)
+	wrongPasswordDuration := fastestLogin("proguy@example.com", "wrong-password")
+	nonexistentUserDuration := fastestLogin("nobody@example.com", "any-password")
 
 	// Nonexistent-user path should never be dramatically faster —
 	// allow a generous 2x margin either direction for test-runner
