@@ -14,19 +14,7 @@ patterns and note the assumption in `PROGRESS.md` — don't block on it.
 
 ## Tier 3 — Infrastructure & Extensibility
 
-### 1. API keys / machine-to-machine auth (item 16)
-
-New concept, not a variant of an existing one — no human to prompt, so
-this sits outside the second-factor system entirely (confirm this
-assumption is right by checking whether M2M auth appears anywhere else
-in the codebase already — it shouldn't). Needs its own storage
-(`store.APIKeyStore`), fast-hash lookup like recovery codes (SHA-256
-via `token.HashToken`, not bcrypt — these are high-entropy generated
-values, not human passwords), and its own facade functions
-(`GenerateAPIKey`, `RevokeAPIKey`, and something that validates a
-presented key and returns which user/scope it belongs to).
-
-### 2. Webhooks (item 17)
+### 1. Webhooks (item 17)
 
 Notify the host app on key events. Same question as everything else
 that reaches outward: interface-only, zero shipped implementations
@@ -38,7 +26,7 @@ subset, not all of them) and wire it in wherever `audit.Record` is
 already called for those events — don't build a second parallel event
 bus.
 
-### 3. Custom email templates (item 18)
+### 2. Custom email templates (item 18)
 
 Check `notify.EmailSender`/`notify.MagicLinkSender` as they exist
 today first — there's a real chance this needs **no engine change at
@@ -56,19 +44,19 @@ than building something speculative to have built something.
 automatic action — no auto-lock, no auto-config-change, nothing. Every
 one of these produces information for a human to act on.
 
-### 4. Weekly digest (item 19)
+### 3. Weekly digest (item 19)
 Reads `AuditStore`, summarizes in plain English, returns text. Nothing
 else.
 
-### 5. Support-ticket assistant (item 20)
+### 4. Support-ticket assistant (item 20)
 Read-only diagnosis ("why can't user X log in") — queries
 `AuditStore`/`UserStore`/session state, produces an explanation, never
 touches anything.
 
-### 6. Config tuning advisor (item 21)
+### 5. Config tuning advisor (item 21)
 Produces a report of suggested config changes. Never applies them.
 
-### 7. Ask-AI widget (item 22)
+### 6. Ask-AI widget (item 22)
 The most complex of the four. Needs its own full design pass before
 any code — at minimum: an LLM provider interface (zero shipped
 implementations, host brings their own key/provider, same pattern as
