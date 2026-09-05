@@ -130,10 +130,20 @@ func New(cfg Config) (*Engine, error) {
 		rateLimiter = security.NewInMemoryRateLimiter(cfg.RateLimitAttempts, cfg.RateLimitWindow)
 	}
 
+	// Webhooks are wired by decorating the audit store, not by threading
+	// a sender through auth/ — see webhookRecorder. One generator is
+	// shared with the engine so a delivery ID and a session ID come from
+	// the same place.
+	ids := security.NewUUIDv7Generator()
+	auditStore := cfg.Audit
+	if cfg.Webhooks != nil {
+		auditStore = newWebhookRecorder(cfg.Audit, cfg.Webhooks, cfg.WebhookEvents, ids, cfg.Logger)
+	}
+
 	return &Engine{
 		users:            cfg.Users,
 		sessions:         cfg.Sessions,
-		audit:            cfg.Audit,
+		audit:            auditStore,
 		verifications:    cfg.Verifications,
 		emailSender:      cfg.EmailSender,
 		oauth:            cfg.OAuth,
@@ -147,7 +157,7 @@ func New(cfg Config) (*Engine, error) {
 		passwordPolicy:   cfg.PasswordPolicy,
 		anomalies:        cfg.Anomalies,
 		hasher:           hasher,
-		ids:              security.NewUUIDv7Generator(),
+		ids:              ids,
 		rateLimiter:      rateLimiter,
 		refreshGen:       refreshGen,
 		jwtIssuer:        jwtIssuer,
