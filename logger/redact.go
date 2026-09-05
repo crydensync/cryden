@@ -30,6 +30,10 @@ const (
 //   - "user_id" — a UUIDv7 that means nothing without the users table,
 //     but is still a stable per-person identifier, which is all a
 //     pseudonymous identifier needs to be to count as one.
+//   - "requesting_user_id" — the same thing under a different name, on
+//     the OAuth link-rejected record. Listed explicitly because a
+//     redactor that let a user ID through on account of a prefix would
+//     be a redactor someone trusted.
 //
 // It is a function rather than a var because a package-level slice is
 // mutable from anywhere, and the one thing a redaction default must not
@@ -40,7 +44,7 @@ const (
 // carries only the IP. A host app logging its own records through the
 // same Logger should pass its own keys in addition to these.
 func DefaultRedactedKeys() []string {
-	return []string{"ip", "user_id"}
+	return []string{"ip", "user_id", "requesting_user_id"}
 }
 
 // Redactor replaces sensitive field values before they reach the Logger
