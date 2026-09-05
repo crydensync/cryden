@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"time"
 
 	"github.com/crydensync/cryden/v2/store"
 )
@@ -118,6 +119,45 @@ func (s *AuditStore) SearchByType(ctx context.Context, eventType store.AuditEven
 		out = append(out, e)
 	}
 	return out, rows.Err()
+}
+
+// CountByType counts the events recorded at or after since, grouped by
+// type, in one query — the whole point being that no audit row leaves
+// the database to be counted.
+//
+// Deliberately unindexed, like SearchByType above it: there is no
+// index on (created_at) or (type, created_at), which makes this a
+// sequential scan over audit_events. That is the same trade the schema
+// already documents for SearchByType — admin tooling running once a
+// week can afford a scan, and an extra B-tree on the busiest write path
+// in the database cannot be undone as cheaply.
+func (s *AuditStore) CountByType(ctx context.Context, since time.Time) (map[store.AuditEventType]int, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT type, COUNT(*)
+		FROM audit_events
+		WHERE created_at >= $1
+		GROUP BY type
+	`, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	counts := make(map[store.AuditEventType]int)
+	for rows.Next() {
+		var (
+			eventType string
+			n         int
+		)
+		if err := rows.Scan(&eventType, &n); err != nil {
+			return nil, err
+		}
+		counts[store.AuditEventType(eventType)] = n
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return counts, nil
 }
 
 var _ store.AuditStore = (*AuditStore)(nil)

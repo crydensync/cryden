@@ -231,6 +231,26 @@ type AuditStore interface {
 	// (e.g. "every token_reuse_detected event, whoever it happened to")
 	// without bypassing the store layer entirely.
 	SearchByType(ctx context.Context, eventType AuditEventType, limit int) ([]AuditEvent, error)
+
+	// CountByType reports how many events of each type were recorded at
+	// or after since, across ALL users — SearchByType's counting
+	// sibling, and the read the weekly digest is built on.
+	//
+	// Counting in the database is the entire reason this exists rather
+	// than being derived from SearchByType: a digest that answered "how
+	// many logins this week" by listing them would move every row of the
+	// busiest event type in the table across the wire to call len() on
+	// it, and would still have to stop at some limit and report "at
+	// least N" for exactly the numbers a human opened the digest to
+	// read.
+	//
+	// Returns one entry per type that actually occurred. A type with no
+	// events in the window is absent from the map rather than present
+	// with a zero, and a window with no events at all is an empty
+	// non-nil map. Types this package does not define are counted too: a
+	// host writing its own event types into the same table sees them in
+	// the result instead of having them silently dropped.
+	CountByType(ctx context.Context, since time.Time) (map[AuditEventType]int, error)
 }
 
 // VerificationPurpose distinguishes what a verification token is for —
