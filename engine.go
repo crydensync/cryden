@@ -79,7 +79,10 @@ func New(cfg Config) (*Engine, error) {
 		return nil, err
 	}
 
-	jwtIssuer, err := token.NewJWTIssuer(cfg.JWTSecret, cfg.AccessTokenTTL)
+	// WithClaims unconditionally: cfg.AccessTokenClaims is nil for most
+	// hosts and a nil provider is the plain constructor's behaviour
+	// exactly, so there is nothing to branch on here.
+	jwtIssuer, err := token.NewJWTIssuerWithClaims(cfg.JWTSecret, cfg.AccessTokenTTL, cfg.AccessTokenClaims)
 	if err != nil {
 		return nil, err
 	}

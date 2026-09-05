@@ -258,12 +258,18 @@ func finishLogin(
 		UserAgent: userAgent,
 	}
 
-	if err := sessions.Create(ctx, session); err != nil {
+	// Issued before the session is stored, not after: with a
+	// token.ClaimsProvider configured this call reaches into the host app
+	// and can genuinely fail, and a failure after Create would leave a
+	// session row behind for a login that returned an error and handed the
+	// caller no refresh token to ever use it with. ctx carries whatever
+	// the host's provider needs to read.
+	accessToken, err := jwtIssuer.IssueWithContext(ctx, user.ID)
+	if err != nil {
 		return Tokens{}, err
 	}
 
-	accessToken, err := jwtIssuer.Issue(user.ID)
-	if err != nil {
+	if err := sessions.Create(ctx, session); err != nil {
 		return Tokens{}, err
 	}
 
