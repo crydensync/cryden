@@ -225,3 +225,24 @@ func TestTimestampOrderingIsLexicographic(t *testing.T) {
 		}
 	}
 }
+
+// newTestDBWithoutForeignKeys is newTestDB with the foreign_keys pragma
+// left at SQLite's own default, which is OFF. Not an oversight: it is
+// the configuration UserStore.Delete's hand-written cascade exists to
+// survive, so at least one test has to run in it. CheckPragmas is not
+// called here — it would correctly complain.
+func newTestDBWithoutForeignKeys(t *testing.T) *sql.DB {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), fmt.Sprintf("cryden-nofk-%d.db", dbCounter.Add(1)))
+
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	if err := Migrate(context.Background(), db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	return db
+}
