@@ -53,9 +53,7 @@ func TestJWTIssuer_RejectsAlgNone(t *testing.T) {
 	// rejected outright, never accepted as if unsigned tokens were valid.
 	iss, _ := NewJWTIssuer("test-secret", time.Minute)
 
-	claims := accessClaims{
-		RegisteredClaims: jwt.RegisteredClaims{Subject: "attacker"},
-	}
+	claims := jwt.MapClaims{"sub": "attacker"}
 	unsignedToken := jwt.NewWithClaims(jwt.SigningMethodNone, claims)
 	tokStr, err := unsignedToken.SignedString(jwt.UnsafeAllowNoneSignatureType)
 	if err != nil {
