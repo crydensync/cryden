@@ -76,6 +76,14 @@ type WebhookEvent struct {
 //     A webhook is a notification, not a gate; nothing in the engine
 //     waits for the host to agree.
 //
+//  3. A PANIC is not an error. It propagates, taking the login with it —
+//     the engine recovers nowhere except across a MultiLogger's sinks,
+//     where recovery has a second sink to preserve the record in (see
+//     logger/multi.go). One sender has no second anything, so a
+//     panicking one is a bug in the host's code that fails loudly on the
+//     first request rather than quietly dropping events for months.
+//     Returning an error is the supported way to report a failure.
+//
 // ctx is the triggering request's context, so it may already be
 // cancelled by the time a slow sender gets to use it. One more reason
 // for the enqueue: a queue write that ignores a cancelled ctx still
