@@ -26,7 +26,7 @@ type NamedSession = session.NamedSession
 // SignUp creates a new user. callerIP is required — used only for
 // rate limiting and audit metadata, never inferred by the engine.
 func SignUp(ctx context.Context, e *Engine, email, password, callerIP string) (store.User, error) {
-	return auth.SignUp(ctx, e.users, e.hasher, e.ids, e.rateLimiter, e.breachChecker, e.audit, e.log, e.passwordPolicy, email, password, callerIP)
+	return auth.SignUp(ctx, e.users, e.hasher, e.ids, e.rateLimiter, e.breachChecker, e.audit, e.logFor(ctx), e.passwordPolicy, email, password, callerIP)
 }
 
 // Login authenticates a user and issues a new session. callerIP and
@@ -37,19 +37,19 @@ func SignUp(ctx context.Context, e *Engine, email, password, callerIP string) (s
 // and the list of enrolled methods; complete via CompleteLoginWithTOTP
 // or BeginWebAuthnLogin/CompleteLoginWithWebAuthn accordingly.
 func Login(ctx context.Context, e *Engine, email, password, callerIP, userAgent string) (Tokens, error) {
-	return auth.Login(ctx, e.users, e.sessions, e.totp, e.webauthn, e.recoveryCodes, e.anomalies, e.hasher, e.ids, e.refreshGen, e.jwtIssuer, e.pendingIssuer, e.rateLimiter, e.audit, e.log, email, password, callerIP, userAgent, e.lockoutThreshold, e.lockoutDuration, e.anomalyThresholds, e.stuffingThresholds)
+	return auth.Login(ctx, e.users, e.sessions, e.totp, e.webauthn, e.recoveryCodes, e.anomalies, e.hasher, e.ids, e.refreshGen, e.jwtIssuer, e.pendingIssuer, e.rateLimiter, e.audit, e.logFor(ctx), email, password, callerIP, userAgent, e.lockoutThreshold, e.lockoutDuration, e.anomalyThresholds, e.stuffingThresholds)
 }
 
 // ChangePassword requires the caller's current password as
 // re-confirmation, and revokes all sessions on success.
 func ChangePassword(ctx context.Context, e *Engine, userID, currentPassword, newPassword string) error {
-	return auth.ChangePassword(ctx, e.users, e.sessions, e.hasher, e.breachChecker, e.audit, e.log, e.passwordPolicy, userID, currentPassword, newPassword)
+	return auth.ChangePassword(ctx, e.users, e.sessions, e.hasher, e.breachChecker, e.audit, e.logFor(ctx), e.passwordPolicy, userID, currentPassword, newPassword)
 }
 
 // DeleteAccount requires the caller's current password as
 // re-confirmation before this irreversible action.
 func DeleteAccount(ctx context.Context, e *Engine, userID, currentPassword string) error {
-	return auth.DeleteAccount(ctx, e.users, e.sessions, e.hasher, e.audit, e.log, userID, currentPassword)
+	return auth.DeleteAccount(ctx, e.users, e.sessions, e.hasher, e.audit, e.logFor(ctx), userID, currentPassword)
 }
 
 // ErrEmailChangeNotConfigured is returned by RequestEmailChange if the
@@ -63,7 +63,7 @@ func RequestEmailChange(ctx context.Context, e *Engine, userID, newEmail string)
 	if e.verifications == nil || e.emailSender == nil {
 		return ErrEmailChangeNotConfigured
 	}
-	return auth.RequestEmailChange(ctx, e.users, e.verifications, e.emailSender, e.refreshGen, e.ids, e.audit, e.log, userID, newEmail)
+	return auth.RequestEmailChange(ctx, e.users, e.verifications, e.emailSender, e.refreshGen, e.ids, e.audit, e.logFor(ctx), userID, newEmail)
 }
 
 // ConfirmEmailChange completes an email change using the token from
@@ -72,7 +72,7 @@ func ConfirmEmailChange(ctx context.Context, e *Engine, rawToken string) error {
 	if e.verifications == nil {
 		return ErrEmailChangeNotConfigured
 	}
-	return auth.ConfirmEmailChange(ctx, e.users, e.verifications, e.audit, e.log, rawToken)
+	return auth.ConfirmEmailChange(ctx, e.users, e.verifications, e.audit, e.logFor(ctx), rawToken)
 }
 
 // ErrOAuthNotConfigured is returned by LoginWithOAuth if the Engine
@@ -90,7 +90,7 @@ func LoginWithOAuth(ctx context.Context, e *Engine, provider, externalID, email,
 	if e.oauth == nil {
 		return Tokens{}, ErrOAuthNotConfigured
 	}
-	return auth.LoginWithOAuth(ctx, e.users, e.oauth, e.sessions, e.totp, e.webauthn, e.recoveryCodes, e.anomalies, e.ids, e.refreshGen, e.jwtIssuer, e.pendingIssuer, e.audit, e.log, provider, externalID, email, callerIP, userAgent, e.anomalyThresholds, e.stuffingThresholds)
+	return auth.LoginWithOAuth(ctx, e.users, e.oauth, e.sessions, e.totp, e.webauthn, e.recoveryCodes, e.anomalies, e.ids, e.refreshGen, e.jwtIssuer, e.pendingIssuer, e.audit, e.logFor(ctx), provider, externalID, email, callerIP, userAgent, e.anomalyThresholds, e.stuffingThresholds)
 }
 
 // LinkOAuthIdentity attaches a confirmed external identity to an
@@ -102,17 +102,17 @@ func LinkOAuthIdentity(ctx context.Context, e *Engine, userID, provider, externa
 	if e.oauth == nil {
 		return ErrOAuthNotConfigured
 	}
-	return auth.LinkOAuthIdentity(ctx, e.users, e.oauth, e.ids, e.audit, e.log, userID, provider, externalID, email, callerIP)
+	return auth.LinkOAuthIdentity(ctx, e.users, e.oauth, e.ids, e.audit, e.logFor(ctx), userID, provider, externalID, email, callerIP)
 }
 
 // Logout revokes a single session. Verifies ownership before revoking.
 func Logout(ctx context.Context, e *Engine, sessionID, userID string) error {
-	return auth.Logout(ctx, e.sessions, e.audit, e.log, sessionID, userID)
+	return auth.Logout(ctx, e.sessions, e.audit, e.logFor(ctx), sessionID, userID)
 }
 
 // LogoutAll revokes every session belonging to userID.
 func LogoutAll(ctx context.Context, e *Engine, userID string) error {
-	return auth.LogoutAll(ctx, e.sessions, e.audit, e.log, userID)
+	return auth.LogoutAll(ctx, e.sessions, e.audit, e.logFor(ctx), userID)
 }
 
 // RefreshToken rotates a refresh token, issuing a new access/refresh
@@ -127,7 +127,7 @@ func RefreshToken(ctx context.Context, e *Engine, rawRefreshToken string) (Token
 				Type:   store.EventTokenReuseDetected,
 				UserID: result.Session.UserID,
 			}); auditErr != nil {
-				e.log.Error("refresh: audit record failed", map[string]string{"error": auditErr.Error()})
+				e.logFor(ctx).Error("refresh: audit record failed", map[string]string{"error": auditErr.Error()})
 			}
 		}
 		return Tokens{}, err
@@ -142,7 +142,7 @@ func RefreshToken(ctx context.Context, e *Engine, rawRefreshToken string) (Token
 		Type:   store.EventTokenRotated,
 		UserID: result.Session.UserID,
 	}); auditErr != nil {
-		e.log.Error("refresh: audit record failed", map[string]string{"error": auditErr.Error()})
+		e.logFor(ctx).Error("refresh: audit record failed", map[string]string{"error": auditErr.Error()})
 	}
 
 	return Tokens{AccessToken: accessToken, RefreshToken: result.RawToken}, nil
@@ -197,13 +197,13 @@ func ListPublicSessions(ctx context.Context, e *Engine, userID string) ([]store.
 // device" at worst); the location half needs Config.Geolocator, and is
 // simply omitted when that is unset or its lookup fails.
 func ListNamedSessions(ctx context.Context, e *Engine, userID string) ([]NamedSession, error) {
-	return session.ListNamed(ctx, e.sessions, e.geolocator, e.log, userID)
+	return session.ListNamed(ctx, e.sessions, e.geolocator, e.logFor(ctx), userID)
 }
 
 // RevokeSession revokes a specific session. Verifies ownership before
 // revoking.
 func RevokeSession(ctx context.Context, e *Engine, sessionID, userID string) error {
-	return session.Revoke(ctx, e.sessions, e.audit, e.log, sessionID, userID)
+	return session.Revoke(ctx, e.sessions, e.audit, e.logFor(ctx), sessionID, userID)
 }
 
 // ErrTOTPNotConfigured is returned by every TOTP facade function
@@ -229,7 +229,7 @@ func ConfirmTOTP(ctx context.Context, e *Engine, userID, code string) error {
 	if e.totp == nil {
 		return ErrTOTPNotConfigured
 	}
-	return auth.ConfirmTOTP(ctx, e.totp, e.totpGen, e.encryptor, e.audit, e.log, userID, code)
+	return auth.ConfirmTOTP(ctx, e.totp, e.totpGen, e.encryptor, e.audit, e.logFor(ctx), userID, code)
 }
 
 // DisableTOTP removes 2FA from an account. Requires the current
@@ -239,7 +239,7 @@ func DisableTOTP(ctx context.Context, e *Engine, userID, currentPassword string)
 	if e.totp == nil {
 		return ErrTOTPNotConfigured
 	}
-	return auth.DisableTOTP(ctx, e.users, e.totp, e.hasher, e.audit, e.log, userID, currentPassword)
+	return auth.DisableTOTP(ctx, e.users, e.totp, e.hasher, e.audit, e.logFor(ctx), userID, currentPassword)
 }
 
 // CompleteLoginWithTOTP finishes a login that Login paused with
@@ -250,7 +250,7 @@ func CompleteLoginWithTOTP(ctx context.Context, e *Engine, pendingToken, code, c
 	if e.totp == nil {
 		return Tokens{}, ErrTOTPNotConfigured
 	}
-	return auth.CompleteLoginWithTOTP(ctx, e.users, e.sessions, e.totp, e.totpGen, e.encryptor, e.ids, e.refreshGen, e.jwtIssuer, e.pendingIssuer, e.audit, e.log, pendingToken, code, callerIP, userAgent)
+	return auth.CompleteLoginWithTOTP(ctx, e.users, e.sessions, e.totp, e.totpGen, e.encryptor, e.ids, e.refreshGen, e.jwtIssuer, e.pendingIssuer, e.audit, e.logFor(ctx), pendingToken, code, callerIP, userAgent)
 }
 
 // ErrWebAuthnNotConfigured is returned by every passkey facade
@@ -287,7 +287,7 @@ func FinishRegisterPasskey(ctx context.Context, e *Engine, userID, ceremonyToken
 	if e.webauthn == nil {
 		return ErrWebAuthnNotConfigured
 	}
-	return auth.FinishRegisterPasskey(ctx, e.users, e.webauthn, e.webauthnProvider, e.encryptor, e.ids, e.audit, e.log, userID, ceremonyToken, clientResponseJSON, nickname)
+	return auth.FinishRegisterPasskey(ctx, e.users, e.webauthn, e.webauthnProvider, e.encryptor, e.ids, e.audit, e.logFor(ctx), userID, ceremonyToken, clientResponseJSON, nickname)
 }
 
 // ListPasskeys returns every passkey registered to userID.
@@ -321,7 +321,7 @@ func DeletePasskey(ctx context.Context, e *Engine, userID, credentialID, current
 	if err != nil {
 		return auth.ErrInvalidWebAuthnResponse
 	}
-	return auth.DeletePasskey(ctx, e.users, e.webauthn, e.hasher, e.audit, e.log, userID, rawID, currentPassword)
+	return auth.DeletePasskey(ctx, e.users, e.webauthn, e.hasher, e.audit, e.logFor(ctx), userID, rawID, currentPassword)
 }
 
 // BeginWebAuthnLogin starts the passkey half of a paused login.
@@ -344,7 +344,7 @@ func CompleteLoginWithWebAuthn(ctx context.Context, e *Engine, pendingToken, cer
 	if e.webauthn == nil {
 		return Tokens{}, ErrWebAuthnNotConfigured
 	}
-	return auth.CompleteLoginWithWebAuthn(ctx, e.users, e.sessions, e.webauthn, e.webauthnProvider, e.encryptor, e.ids, e.refreshGen, e.jwtIssuer, e.pendingIssuer, e.audit, e.log, pendingToken, ceremonyToken, clientResponseJSON, callerIP, userAgent)
+	return auth.CompleteLoginWithWebAuthn(ctx, e.users, e.sessions, e.webauthn, e.webauthnProvider, e.encryptor, e.ids, e.refreshGen, e.jwtIssuer, e.pendingIssuer, e.audit, e.logFor(ctx), pendingToken, ceremonyToken, clientResponseJSON, callerIP, userAgent)
 }
 
 // ErrMagicLinkNotConfigured is returned by RequestMagicLink and
@@ -362,7 +362,7 @@ func RequestMagicLink(ctx context.Context, e *Engine, email, callerIP string) er
 	if e.magicLinkSender == nil {
 		return ErrMagicLinkNotConfigured
 	}
-	return auth.RequestMagicLink(ctx, e.users, e.verifications, e.magicLinkSender, e.refreshGen, e.ids, e.rateLimiter, e.audit, e.log, email, callerIP)
+	return auth.RequestMagicLink(ctx, e.users, e.verifications, e.magicLinkSender, e.refreshGen, e.ids, e.rateLimiter, e.audit, e.logFor(ctx), email, callerIP)
 }
 
 // CompleteMagicLink logs in using the raw token from a link sent by
@@ -374,7 +374,7 @@ func CompleteMagicLink(ctx context.Context, e *Engine, rawToken, callerIP, userA
 	if e.magicLinkSender == nil {
 		return Tokens{}, ErrMagicLinkNotConfigured
 	}
-	return auth.CompleteMagicLink(ctx, e.users, e.sessions, e.verifications, e.totp, e.webauthn, e.recoveryCodes, e.anomalies, e.ids, e.refreshGen, e.jwtIssuer, e.pendingIssuer, e.audit, e.log, rawToken, callerIP, userAgent, e.anomalyThresholds, e.stuffingThresholds)
+	return auth.CompleteMagicLink(ctx, e.users, e.sessions, e.verifications, e.totp, e.webauthn, e.recoveryCodes, e.anomalies, e.ids, e.refreshGen, e.jwtIssuer, e.pendingIssuer, e.audit, e.logFor(ctx), rawToken, callerIP, userAgent, e.anomalyThresholds, e.stuffingThresholds)
 }
 
 // ErrRecoveryCodesNotConfigured is returned by GenerateRecoveryCodes
@@ -392,7 +392,7 @@ func GenerateRecoveryCodes(ctx context.Context, e *Engine, userID string) ([]str
 	if e.recoveryCodes == nil {
 		return nil, ErrRecoveryCodesNotConfigured
 	}
-	return auth.GenerateRecoveryCodes(ctx, e.totp, e.webauthn, e.recoveryCodes, e.audit, e.log, userID)
+	return auth.GenerateRecoveryCodes(ctx, e.totp, e.webauthn, e.recoveryCodes, e.audit, e.logFor(ctx), userID)
 }
 
 // CompleteLoginWithRecoveryCode finishes a login that Login (or
@@ -403,5 +403,5 @@ func CompleteLoginWithRecoveryCode(ctx context.Context, e *Engine, pendingToken,
 	if e.recoveryCodes == nil {
 		return Tokens{}, ErrRecoveryCodesNotConfigured
 	}
-	return auth.CompleteLoginWithRecoveryCode(ctx, e.users, e.sessions, e.recoveryCodes, e.ids, e.refreshGen, e.jwtIssuer, e.pendingIssuer, e.audit, e.log, pendingToken, code, callerIP, userAgent)
+	return auth.CompleteLoginWithRecoveryCode(ctx, e.users, e.sessions, e.recoveryCodes, e.ids, e.refreshGen, e.jwtIssuer, e.pendingIssuer, e.audit, e.logFor(ctx), pendingToken, code, callerIP, userAgent)
 }

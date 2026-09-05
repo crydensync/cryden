@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/crydensync/cryden/v2/auth"
+	"github.com/crydensync/cryden/v2/logger"
 	"github.com/crydensync/cryden/v2/security"
 	"github.com/crydensync/cryden/v2/store"
 	"github.com/crydensync/cryden/v2/store/memory"
@@ -270,5 +271,95 @@ func TestSignUp_UsesTheConfiguredRateLimiter(t *testing.T) {
 	}
 	if len(limiter.keys) != 1 || limiter.keys[0] != "signup:1.2.3.4" {
 		t.Errorf("expected one call keyed \"signup:1.2.3.4\", got %v", limiter.keys)
+	}
+}
+
+// facadeTraceKey stands in for a host app's tracing middleware key. Its
+// unexported type is the reason the engine cannot read a trace ID itself
+// and has to pass the whole context through.
+type facadeTraceKey struct{}
+
+// facadeCtxLogger is the shape of a host's cloud sink: it implements
+// logger.ContextLogger, so the engine must reach it through Log carrying
+// the context of the call, never through the four context-free methods.
+type facadeCtxLogger struct {
+	traces []string
+	bare   int
+}
+
+func (f *facadeCtxLogger) Log(ctx context.Context, _ logger.Level, _ string, _ map[string]string) {
+	trace, _ := ctx.Value(facadeTraceKey{}).(string)
+	f.traces = append(f.traces, trace)
+}
+
+func (f *facadeCtxLogger) Debug(string, map[string]string) { f.bare++ }
+func (f *facadeCtxLogger) Info(string, map[string]string)  { f.bare++ }
+func (f *facadeCtxLogger) Warn(string, map[string]string)  { f.bare++ }
+func (f *facadeCtxLogger) Error(string, map[string]string) { f.bare++ }
+
+var _ logger.ContextLogger = (*facadeCtxLogger)(nil)
+
+// facadePlainLogger is a Logger written before ContextLogger existed —
+// four methods, no context. It has to keep receiving records exactly as
+// it always did.
+type facadePlainLogger struct {
+	calls int
+}
+
+func (f *facadePlainLogger) Debug(string, map[string]string) { f.calls++ }
+func (f *facadePlainLogger) Info(string, map[string]string)  { f.calls++ }
+func (f *facadePlainLogger) Warn(string, map[string]string)  { f.calls++ }
+func (f *facadePlainLogger) Error(string, map[string]string) { f.calls++ }
+
+var _ logger.Logger = (*facadePlainLogger)(nil)
+
+// Wiring a ContextLogger into Config has to reach the real call path,
+// not just the Engine struct: auth.SignUp holds a plain logger.Logger and
+// logs "signup: completed" through it, so this asserts the per-call
+// binding in Engine.logFor actually carries the caller's context that far.
+func TestSignUp_HandsTheCallContextToAContextLogger(t *testing.T) {
+	sink := &facadeCtxLogger{}
+	cfg := validConfig()
+	cfg.Logger = sink
+	engine, err := New(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	ctx := context.WithValue(context.Background(), facadeTraceKey{}, "trace-xyz")
+	if _, err := SignUp(ctx, engine, "raymondproguy@dev.com", "Tr0ubl3-Fr33!2026", "1.2.3.4"); err != nil {
+		t.Fatalf("signup failed: %v", err)
+	}
+
+	if len(sink.traces) == 0 {
+		t.Fatal("the configured logger recorded nothing during a successful signup")
+	}
+	if sink.bare != 0 {
+		t.Errorf("%d record(s) arrived through a context-free method, losing the trace", sink.bare)
+	}
+	for i, trace := range sink.traces {
+		if trace != "trace-xyz" {
+			t.Errorf("record %d carried trace %q, want %q", i, trace, "trace-xyz")
+		}
+	}
+}
+
+// The same path, for a Logger that predates ContextLogger: it must still
+// be called, and through its own four methods.
+func TestSignUp_StillLogsToAContextFreeLogger(t *testing.T) {
+	sink := &facadePlainLogger{}
+	cfg := validConfig()
+	cfg.Logger = sink
+	engine, err := New(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if _, err := SignUp(context.Background(), engine, "raymondproguy@dev.com", "Tr0ubl3-Fr33!2026", "1.2.3.4"); err != nil {
+		t.Fatalf("signup failed: %v", err)
+	}
+
+	if sink.calls == 0 {
+		t.Error("a context-free Logger recorded nothing during a successful signup")
 	}
 }
