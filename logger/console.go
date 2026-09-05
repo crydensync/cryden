@@ -11,6 +11,13 @@ import (
 // letting the consuming app's own infra (Docker, systemd, a log
 // agent/sidecar) route output to file/cloud as needed. This package
 // never writes to disk or calls a cloud logging API directly.
+//
+// It implements Logger only, not ContextLogger: there is no trace ID it
+// could read out of a context, since the key that holds one belongs to
+// the host app. ForContext hands it back unchanged, which is why wiring
+// it costs nothing and why it is still the default. To send these
+// records somewhere else as well, see this package's own doc comment —
+// the answer is a MultiLogger, not a second ConsoleJSONLogger.
 type ConsoleJSONLogger struct{}
 
 func NewConsoleJSONLogger() *ConsoleJSONLogger {
@@ -26,10 +33,14 @@ type logLine struct {
 
 func (l *ConsoleJSONLogger) write(level, msg string, fields map[string]string) {
 	line := logLine{
-		Level:     level,
-		Message:   msg,
-		Fields:    fields,
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Level:   level,
+		Message: msg,
+		Fields:  fields,
+		// Nano, not plain RFC3339: one login emits dozens of records, and
+		// at second precision they arrive with identical timestamps, so
+		// nothing downstream can order them. A hosted sink sorting by
+		// timestamp is where that stops being cosmetic.
+		Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
 	}
 	b, err := json.Marshal(line)
 	if err != nil {
