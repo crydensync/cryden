@@ -604,3 +604,103 @@ what the engine actually logs (one `debug` call site in the entire
 engine, `error` used only for audit-write failures).
 
 Next in queue: item 15, extensible JWT claims.
+
+## 2026-09-05 — Extensible JWT claims (item 15)
+
+Branch: `feat/jwt-claims`, off `feat/cloud-loggers` at `40fa2db` (so it
+carries items 8–15). 7 commits.
+
+`Config.AccessTokenClaims` takes a `token.ClaimsProvider`
+(`AccessTokenClaims(ctx, userID) (map[string]any, error)`, plus a
+`ClaimsFunc` adapter) and whatever it returns is merged into every access
+token; `cryden.VerifyTokenWithClaims` reads it back. New:
+`token/claims.go`, `token/claims_test.go`, `claims_facade_test.go`,
+`cmd/smoketest/jwt-claims/`, `docs/testing/jwt-claims.md`. Changed:
+`token/jwt.go` (rewritten around `jwt.MapClaims`), `token/errors.go`,
+`config.go`, `engine.go`, `cryden.go`, `auth/login.go`,
+`token/jwt_test.go`. No dependency change — `golang-jwt/jwt/v5` was
+already there.
+
+Assumptions and decisions made without asking:
+
+- **The hook, not an `extraClaims` parameter.** `NEXT.md` left the choice
+  open. Decided by one fact: the host cannot supply claims on the refresh
+  path at all, since `RefreshToken` takes a refresh token and nothing
+  else. A parameter would need threading through six facade functions and
+  would still leave refreshed tokens claimless — the worst failure mode
+  available, where authorization works for fifteen minutes and then
+  quietly stops.
+- **Additive surface, nothing renamed.** `Issue` and `NewJWTIssuer` are
+  public API in a released v2 module, so they stay and delegate:
+  `Issue` → `IssueWithContext(context.Background(), …)`, `NewJWTIssuer` →
+  `NewJWTIssuerWithClaims(…, nil)`. The `NewRedisRateLimiterWithPrefix`
+  precedent. Exactly two call sites moved to the ctx form —
+  `auth/login.go`'s `finishLogin` and `cryden.go`'s `RefreshToken`, both
+  of which already held a ctx.
+- **All seven registered claim names refused, all-or-nothing, before any
+  merge.** `sub` is the one that matters — `Verify` reads the user ID out
+  of it, so a provider able to set it could mint a token for somebody
+  else. The other six are refused too so the rule does not expire the day
+  the engine starts setting `aud` or `jti`. Case-sensitive, because JSON
+  keys are; `SUB` is inert and passes through as ordinary host data. The
+  error wraps `ErrReservedClaim` and names the offender, so a host
+  debugging its own provider gets something to act on.
+- **A provider error fails the token — the opposite of
+  `BreachedPasswordChecker`.** That one fails open because a breach check
+  is a restriction, and failing open on a restriction admits a legitimate
+  user. Claims are authorization data: failing open there issues a
+  credential carrying less authority than intended, into a gateway that
+  may read a missing `role` as "unrestricted" rather than "denied". Added
+  `ErrClaimsProvider` (a third sentinel, beyond the two originally
+  planned) so a caller can recognise the class without importing the
+  host's error types, wrapped alongside the host's own error with two
+  `%w`s.
+- **`finishLogin` now issues the access token before writing the session
+  row.** Reordered because this call can genuinely fail now: a failure
+  after `Create` left a session in the store for a login that returned an
+  error and handed the caller no refresh token to ever use it with. A
+  facade test asserts zero sessions after a failed provider.
+- **On refresh the rotation cannot be undone, so a provider failure there
+  costs the session.** The user's refresh token is spent and they log in
+  again. Pinned by a test and documented rather than worked around —
+  issuing a claimless token instead would be exactly the fail-open
+  behaviour rejected above.
+- **Claims are re-evaluated on every access token, not copied forward.**
+  That is the role-propagation story (change a role, next refresh carries
+  it) and also the cost warning: a provider call per login *and* per
+  refresh, roughly every fifteen minutes per active session at the
+  default TTL. Documented in `Config`'s doc comment, since it is the one
+  thing a host can get badly wrong.
+- **The `alg: none` defence is stronger, not weaker** — the spec's one
+  hard constraint. The keyfunc's `*jwt.SigningMethodHMAC` check stays, and
+  `jwt.WithValidMethods(["HS256"])` + `jwt.WithExpirationRequired()` sit
+  over it. Both are kept deliberately: the keyfunc rejects a family, the
+  pin rejects the members of it we do not issue, and the smoke test proves
+  the difference with an HS512 token signed with the real secret, which
+  the keyfunc alone would have let through.
+- **`accessClaims` deleted in favour of `jwt.MapClaims`** (v5
+  special-cases it in `ParseWithClaims`, so the caller's map is
+  populated). The subject is now a type assertion, so an absent, empty or
+  non-string `sub` is an invalid token rather than an empty user ID
+  returned with a nil error. `token/jwt_test.go`'s `alg: none` test was
+  updated to build `jwt.MapClaims{"sub": "attacker"}`.
+- **No size cap on claims, and no `sid`.** A cap low enough to be safe
+  behind every proxy would be too low to be useful; the header risk is
+  documented in the testing guide instead. `sid` would be a claim the
+  engine sets itself, not host data, so it is out of scope for this item.
+- **README left alone.** It has not been updated since item 7 and
+  mentions none of items 8–14 either; adding a section for this one alone
+  would document claims while still omitting Argon2id, SQLite, the Redis
+  limiter and the logger work. Worth one deliberate pass by the human,
+  not seven inconsistent ones.
+
+Verification: `gofmt -l` clean on every changed file, `go build ./...`,
+`go vet ./...` and `go test ./...` all clean, and `go run
+./cmd/smoketest/jwt-claims` passes all 75 checks over eight sections —
+the round trip, the no-provider default (payload holds exactly
+`exp,iat,sub`), refresh re-evaluation, all seven reserved names, the
+fail-closed pair, unusable claims, eight forged tokens signed with the
+engine's own secret, and the decoded payload printed for inspection. No
+external service needed.
+
+Next in queue: item 16, API keys / machine-to-machine auth.
