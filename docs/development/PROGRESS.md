@@ -831,3 +831,79 @@ needed, no HTTP call made.
 
 Next in queue: item 18, custom email templates — which the spec itself
 flags as possibly needing no engine change at all.
+
+## 2026-09-05 — item 18, custom email templates
+
+Branch: `feat/custom-email-templates` (4 commits, branched from
+`feat/webhooks` at `6f84095`). **Built no engine code, on purpose.** The
+item said to check `notify.EmailSender`/`notify.MagicLinkSender` first
+because there was a real chance nothing was needed. Nothing is: the host
+app already owns every byte of every email.
+
+What the check actually found:
+
+- **Two interfaces, two methods, two call sites in the entire tree.**
+  `SendVerification` at `auth/email.go:70` (email change) and
+  `SendMagicLink` at `auth/magiclink.go:88` (passwordless login). Both
+  pass `(ctx, to, rawToken)` and nothing else — no subject, no body, no
+  HTML, no from-address, no URL. Both doc comments already said the host
+  owns the template and the URL; that is accurate, not aspirational.
+- **`Config` has exactly two email-shaped fields**, and both are those
+  interfaces. There is no template knob to add an override to.
+- **The ambiguity the code worried about does not exist.**
+  `magic_link_sender.go`'s comment justifies being a separate interface
+  partly because "`EmailSender.SendVerification` has no way to signal
+  which one it's sending" — with one call site each, neither
+  implementation ever has to guess.
+- **No missing third template.** There is no signup verification flow
+  (`store.PurposeEmailVerify` has no producer outside a store smoke
+  test) and no password-reset flow at all (`ChangePassword` requires the
+  current password), so nothing else in the engine wants to send mail.
+
+Decisions, since "mark it done-as-a-non-issue" still leaves what to
+produce:
+
+- **Wrote the two required artifacts anyway.** `CLAUDE.md` says every
+  item gets a `docs/testing/<item>.md` and a runnable smoke test, and
+  they are worth more here than usual: they turn "no engine change
+  needed" from a claim in this file into something executable. The guide
+  answers the question behind the item — how a host controls what those
+  emails say — rather than documenting a feature that does not exist.
+- **Added `custom_email_templates_test.go`** (three tests) so the
+  verdict is pinned in `go test ./...`: both interfaces take only
+  `(context.Context, string, string) error`, `Config`'s only
+  email-shaped fields are the two senders, and a link the host composed
+  on its own domain confirms an email change. A `Config.EmailSubject`
+  added in a later session fails the suite instead of quietly making the
+  guide wrong. Not speculative — no new API, no new behaviour.
+- **Did not export the two TTLs.** This is the one real gap:
+  `changeEmailTokenTTL` (1 hour) and `magicLinkTTL` (15 minutes) are
+  unexported and not handed to the sender, so a template saying "expires
+  in 1 hour" hardcodes a number that could drift. Exporting
+  `cryden.EmailChangeTokenTTL`/`cryden.MagicLinkTokenTTL` would fix it in
+  about four lines, but it is a permanent public-API commitment and the
+  item explicitly said not to build something speculative to have built
+  something. Recorded in the guide's "Known limits" as a queueable item
+  instead, and the smoke test guards against the drift by reading the
+  real `ExpiresAt` back out of the host's own `VerificationStore` and
+  comparing it to the strings the templates hardcode. Adding a parameter
+  to either send method was never an option — it breaks every existing
+  host implementation at compile time, which is precisely why
+  `MagicLinkSender` exists as its own interface.
+- **The branch is named `feat/` and contains no feature.** `CLAUDE.md`
+  offers `feat/` or `fix/` and neither fits a non-issue; kept the
+  convention rather than inventing a prefix, and said so in
+  `CURRENT-STATE.md` so nobody reads the name as a claim.
+
+Verification: `gofmt -l` clean on both new files, `go build ./...`,
+`go vet ./...` and `go test ./... -count=1` all clean (3 new tests), and
+`go run ./cmd/smoketest/custom-email-templates` passes all 54 checks over
+ten sections — including a host-composed URL round-tripping through
+`ConfirmEmailChange`, a German template chosen from the recipient, a
+provider failure leaving the address unchanged, an unknown address
+sending nothing, and a reflection check that `Config` has no template
+knob. No external service, no mail provider contacted.
+
+Tier 3 is now complete (7 of 7). Next in queue: item 19, the weekly
+digest — the first of Tier 4, where everything is read-only by
+non-negotiable rule.

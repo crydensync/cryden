@@ -12,17 +12,7 @@ patterns and note the assumption in `PROGRESS.md` — don't block on it.
 
 ---
 
-## Tier 3 — Infrastructure & Extensibility
-
-### 1. Custom email templates (item 18)
-
-Check `notify.EmailSender`/`notify.MagicLinkSender` as they exist
-today first — there's a real chance this needs **no engine change at
-all**, since the host app's own implementation already owns the
-actual email body/template (the engine only ever hands over a raw
-token, per `EmailSender`'s own doc comment). If that's true, say so
-plainly in `PROGRESS.md` and mark the item done-as-a-non-issue rather
-than building something speculative to have built something.
+Tier 3 is complete — all seven items done. See `CURRENT-STATE.md`.
 
 ---
 
@@ -32,19 +22,19 @@ than building something speculative to have built something.
 automatic action — no auto-lock, no auto-config-change, nothing. Every
 one of these produces information for a human to act on.
 
-### 2. Weekly digest (item 19)
+### 1. Weekly digest (item 19)
 Reads `AuditStore`, summarizes in plain English, returns text. Nothing
 else.
 
-### 3. Support-ticket assistant (item 20)
+### 2. Support-ticket assistant (item 20)
 Read-only diagnosis ("why can't user X log in") — queries
 `AuditStore`/`UserStore`/session state, produces an explanation, never
 touches anything.
 
-### 4. Config tuning advisor (item 21)
+### 3. Config tuning advisor (item 21)
 Produces a report of suggested config changes. Never applies them.
 
-### 5. Ask-AI widget (item 22)
+### 4. Ask-AI widget (item 22)
 The most complex of the four. Needs its own full design pass before
 any code — at minimum: an LLM provider interface (zero shipped
 implementations, host brings their own key/provider, same pattern as
