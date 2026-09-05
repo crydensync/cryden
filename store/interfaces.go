@@ -174,6 +174,36 @@ const (
 	// that already succeeded, and never a rejection — a failed rewrite
 	// leaves the old hash in place and the login stands.
 	EventPasswordHashUpgraded AuditEventType = "password_hash_upgraded"
+
+	// EventAPIKeyCreated records that a new machine-to-machine key was
+	// issued for an account. Metadata carries "key_id", "prefix" and the
+	// "scopes" it was granted — never the key itself, which exists only
+	// in the value returned to whoever asked for it.
+	EventAPIKeyCreated AuditEventType = "api_key_created"
+
+	// EventAPIKeyRevoked records that a key was revoked. Metadata carries
+	// "key_id". A revoked key is dead from the next request onward; there
+	// is no un-revoke, and generating a replacement is a separate event.
+	EventAPIKeyRevoked AuditEventType = "api_key_revoked"
+
+	// EventAPIKeyRejected records that a REAL key was presented and
+	// refused — revoked, or past its expiry. Metadata carries "key_id"
+	// and a "reason" of "revoked" or "expired".
+	//
+	// Deliberately not recorded for an unrecognised key, which is the
+	// case that looks most like an attack and is the only one an attacker
+	// controls: anybody can post arbitrary bytes as a key, and auditing
+	// those would hand the internet a write endpoint into this table.
+	// What is left is the signal worth having and impossible to
+	// manufacture — a key that this system really issued, still in use
+	// after it was retired, which means either a deployment nobody
+	// updated or somebody holding a credential they should not have.
+	//
+	// Successful authentications are not recorded either, for the
+	// throughput reason rather than the security one: one audit row per
+	// machine request would make the audit table the busiest table in the
+	// database and bury every event a human wanted to read.
+	EventAPIKeyRejected AuditEventType = "api_key_rejected"
 )
 
 // AuditEvent is a single security-relevant, queryable record.
@@ -463,4 +493,102 @@ type IPTargetCounts struct {
 	// address is deliberately not stored, so the same nonexistent email
 	// probed twice counts twice.
 	UnknownTargetFailures int
+}
+
+// APIKey is one machine-to-machine credential belonging to a user. It
+// is a second, parallel way to authenticate as that user — no password,
+// no session, no refresh token, and deliberately outside the
+// second-factor system entirely: there is no human at the other end to
+// prompt for a code, so a key that resolved would then pause forever.
+//
+// KeyHash is the SHA-256 hash of the raw key (token.HashToken), the
+// same fast hash refresh tokens and recovery codes use, for the same
+// reason plus one more. The reason they share: the raw value is
+// crypto/rand output, not a human-chosen secret, so there is no
+// weak-guessing risk a slow hash would defend against. The one they
+// don't: a password is verified once per login, while a key is verified
+// on every single request a machine makes, so bcrypt's cost would be
+// paid per call, forever, on the hottest path in the engine.
+//
+// The raw key exists exactly once, in the value auth.GenerateAPIKey
+// returns. Nothing here can reproduce it.
+type APIKey struct {
+	ID     string
+	UserID string
+	// Name is a host-supplied label ("CI deploy bot") shown when
+	// listing keys — presentational, like WebAuthnCredential.Nickname,
+	// never used for a security decision, and not required to be
+	// unique or non-empty.
+	Name string
+	// Prefix is the leading, non-secret fragment of the raw key
+	// ("ck_a1b2c3d4"), stored in the clear so a management UI, and the
+	// host's own logs, can say which key is which without holding the
+	// key itself. Not a lookup key, not unique by construction — the
+	// stored secret is KeyHash and only KeyHash.
+	Prefix  string
+	KeyHash string
+	// Scopes are host-defined permission strings, stored and returned
+	// verbatim. The engine never interprets one — same reasoning as
+	// OAuthIdentity.Provider being a plain string rather than an enum:
+	// a new scope must never require an engine change. Enforcing them
+	// is the host's job, and auth.APIKeyIdentity.HasScope is the only
+	// help offered.
+	Scopes []string
+	// ExpiresAt is nil for a key that never expires, which is the
+	// default. Expiry is enforced by auth.AuthenticateAPIKey rather
+	// than by the store: GetByKeyHash returns expired and revoked rows
+	// so that layer can tell them apart from a key that never existed,
+	// which is a distinction the audit trail depends on.
+	ExpiresAt *time.Time
+	CreatedAt time.Time
+	// LastUsedAt is the operational signal that answers "is anything
+	// still using this key?" before someone deletes it. Updated coarsely
+	// on purpose (see auth.AuthenticateAPIKey) — treat it as accurate to
+	// within a few minutes, never as a per-request access log.
+	LastUsedAt *time.Time
+	RevokedAt  *time.Time
+}
+
+// APIKeyStore defines persistence for API keys.
+//
+// Every method here is on a request path, not an administrative one:
+// GetByKeyHash in particular runs once per authenticated machine
+// request, which is why it is a single lookup on a unique index and why
+// nothing in this interface returns a joined or aggregated shape.
+type APIKeyStore interface {
+	Create(ctx context.Context, key APIKey) error
+
+	// GetByKeyHash returns the key with this hash whatever its state —
+	// revoked and expired rows come back like any other. Filtering
+	// those is auth.AuthenticateAPIKey's job, because the difference
+	// between "no such key" and "a real key that is no longer usable"
+	// is the difference between silence and an audit event.
+	GetByKeyHash(ctx context.Context, keyHash string) (APIKey, error)
+
+	// ListByUser returns the user's keys newest-first, excluding
+	// revoked ones — the same active-only convention as
+	// SessionStore.ListByUser. Expired-but-unrevoked keys ARE included:
+	// "your CI key expired on Tuesday" is exactly what someone needs to
+	// see to understand why a pipeline broke, whereas a revoked key has
+	// already been dealt with.
+	ListByUser(ctx context.Context, userID string) ([]APIKey, error)
+
+	// Revoke marks keyID revoked, scoped to userID. Ownership is
+	// enforced in the statement rather than by reading the row and
+	// comparing in Go: one round trip does both, and a caller can never
+	// learn whether somebody else's key exists. Returns ErrNotFound for
+	// a key that does not exist, is already revoked, or belongs to
+	// another user — all three indistinguishable on purpose.
+	Revoke(ctx context.Context, userID, keyID string) error
+
+	// TouchLastUsed records that keyID was just used. The clock is the
+	// caller's, unlike AuditStore.Record and AnomalyStore.RecordAttempt
+	// which assign their own, because the caller only calls this when
+	// the value it already read is stale enough to be worth a write and
+	// must store the same instant it compared against.
+	//
+	// Best-effort by contract: a zero-row update is not an error (the
+	// key may have been revoked a moment ago), and the caller treats a
+	// real failure as a log line, never as a failed request.
+	TouchLastUsed(ctx context.Context, keyID string, at time.Time) error
 }
