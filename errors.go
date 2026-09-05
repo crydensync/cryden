@@ -23,4 +23,10 @@ var (
 	// magic-link tokens are stored there, alongside email-change
 	// tokens, distinguished by purpose.
 	ErrMissingVerificationStore = errors.New("cryden: Config.Verifications is required when Config.MagicLinkSender is set")
+	// ErrInvalidAPIKeyPrefix is returned by New if
+	// Config.APIKeyPrefix contains whitespace or an underscore. The
+	// underscore is the separator between the label and the secret in a
+	// generated key, and whitespace in a credential that travels in an
+	// Authorization header is a support ticket waiting to happen.
+	ErrInvalidAPIKeyPrefix = errors.New("cryden: Config.APIKeyPrefix must not contain whitespace or an underscore")
 )
