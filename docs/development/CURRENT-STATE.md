@@ -1,7 +1,7 @@
 # cryden — current state
 
-Last updated: 2026-09-05 (by the session that built the Argon2id
-hasher). Update this file's date and content every time a session
+Last updated: 2026-09-05 (by the session that built the SQLite storage
+backend). Update this file's date and content every time a session
 finishes an item — see `CLAUDE.md`'s end-of-session checklist.
 
 ## Tagged releases
@@ -214,9 +214,9 @@ re-derive it**:
   `CountTargetsForIP`, added by item 9 above against the same table.
 
 
-## Tier 3 — Infrastructure & Extensibility: IN PROGRESS (1 of 7)
+## Tier 3 — Infrastructure & Extensibility: IN PROGRESS (2 of 7)
 
-Six items left. See `NEXT.md`.
+Five items left. See `NEXT.md`.
 
 ### Item 12 — Argon2id hasher: DONE, branch `feat/argon2id-hasher`
 
@@ -270,6 +270,67 @@ the fastest of five. `PROGRESS.md` has the detail. Everything ran clean
 here — `go build ./...`, `go vet ./...`, `go test ./...`, `gofmt -l` —
 this item needed no external service, unlike item 11.
 
+### Item 13 — SQLite storage backend: DONE, branch `feat/sqlite-store`
+
+A **second real backend**, not a replacement: all nine `store.X`
+interfaces plus `ai.QueryableStore` implemented against SQLite in a new
+`store/sqlite` package. Nothing outside that directory changed — no
+interface, no `store/postgres` file, no shared helper — and nothing in
+`auth/`, `session/`, `security/` or the facade can tell which backend it
+holds.
+
+SQLite was confirmed rather than assumed: it is the only candidate that
+changes *deployment shape* (a single file, no server) rather than vendor,
+which is what a second backend is for, and it stresses the interfaces
+hardest — no UUID function, no `RETURNING` on old versions, foreign keys
+off by default.
+
+Shipped as: `store/sqlite/` — `sqlite.go` (package doc, `formatTime`/
+`parseTime`, `nullString`, `newID`), `migrate.go` (`Migrate`,
+`CheckPragmas`, `ErrForeignKeysDisabled`, `ErrNoBusyTimeout`),
+`migrations/0001_initial_schema.{up,down}.sql`, and ten stores:
+`UserStore`, `SessionStore`, `AuditStore`, `VerificationStore`,
+`OAuthStore`, `TOTPStore`, `WebAuthnStore`, `RecoveryCodeStore`,
+`AnomalyStore`, `SafeQueryStore`. **No engine change at all** — no
+`Config` field, no facade function: the stores satisfy interfaces that
+already existed. `go.mod` gains `modernc.org/sqlite` as a
+**test-and-smoketest-only** dependency.
+
+Decisions worth not re-deriving (full reasoning in `PROGRESS.md`): the
+package **imports no driver**, so a host picks mattn/modernc/ncruces and
+the pragma DSN syntax is theirs, not ours; **timestamps are fixed-width
+TEXT** (`2006-01-02T15:04:05.000000000Z07:00`, UTC, exactly 30 chars) so
+lexicographic order equals chronological order, with columns declared
+`TEXT` and never `DATETIME` because `mattn` would convert those to
+`time.Time` and break every scan; **`UserStore.Delete` cascades by hand**
+in a transaction because SQLite defaults `foreign_keys` *off*, and a
+deleted account whose sessions survive keeps rotating refresh tokens —
+`audit_events`/`login_attempts` get `user_id` NULLed instead, matching
+`ON DELETE SET NULL`; `CheckPragmas` **reports** rather than sets,
+because pragmas are per-connection and `*sql.DB` is a pool; `RETURNING`
+avoided entirely (needs 3.35, bullseye ships 3.34.1) via `UPDATE` then
+`SELECT` in one transaction, `COUNT(*) FILTER` → `COUNT(CASE WHEN …)`
+(COUNT not SUM — SUM is NULL over zero rows), `gen_random_uuid()` →
+`uuid.NewV7()`, `JSONB` → TEXT-holding-JSON passed as a `string` so
+`json_*` can read it, `BYTEA` → BLOB, `ILIKE` → `LIKE`, and **upsert
+needed no translation** (SQLite has had it since 3.24); store-assigned vs
+caller-supplied timestamps follow Postgres exactly; `SafeQueryStore` must
+be handed a **`mode=ro` handle**, not `PRAGMA query_only`, and that
+handle — not the allowlist — is the real write boundary; **one migration
+file**, since there was no deployed SQLite database to migrate
+incrementally from.
+
+Tests: eleven `_test.go` files, 53 funcs, using real files under
+`t.TempDir()` rather than `:memory:` (a bare in-memory DSN belongs to one
+connection, so a pool's second connection sees an empty schema). Smoke
+test: `cmd/smoketest/sqlite-store` (160 checks over nine sections) —
+writes real databases under a temp dir, because WAL, `busy_timeout` and
+`mode=ro` only mean anything on a file, and its last section makes the
+`:memory:` pool trap deterministic before showing `cache=shared` fix it.
+Manual guide: `docs/testing/sqlite-store.md`. Everything ran clean here —
+`go build ./...`, `go vet ./...`, `go test ./...`, `gofmt -l` — no
+external service needed, unlike item 11.
+
 ## Tier 4 — AI-assisted admin features: NOT STARTED
 
 Four items, all read-only/surface-only by explicit, non-negotiable
@@ -316,6 +377,15 @@ project brief.
   lifting item 12 onto `main` alone means resolving that by hand. Unlike
   item 11 it adds no dependency and needs no external service to verify.
   Unmerged and unpushed.
+
+- `feat/sqlite-store` — item 13, complete, 9 commits, branched from
+  `feat/argon2id-hasher` at `ca80f05`, the tip of the chain, so this
+  branch carries items 8 through 13. Unlike every item above it, this one
+  touched **no engine file at all** — no `config.go`, no `engine.go` — so
+  it has no adjacency to resolve and lifts onto `main` cleanly on its
+  own. It does add a dependency, `modernc.org/sqlite`, but only for tests
+  and `cmd/smoketest/sqlite-store`; `store/sqlite` itself imports no
+  driver. Unmerged and unpushed.
 
 Nothing else in flight. Each new session picks the top item off
 `NEXT.md`, creates its own branch, and this section should be updated to
