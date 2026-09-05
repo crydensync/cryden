@@ -164,3 +164,14 @@ func nullString(s string) sql.NullString {
 	}
 	return sql.NullString{String: s, Valid: true}
 }
+
+// formatTimePtr renders an optional timestamp for storage, mapping nil
+// or the zero instant to SQL NULL. The pair of it and scanTime.ptr is
+// how the domain types' *time.Time fields survive a round trip through
+// a TEXT column with "not set" intact.
+func formatTimePtr(t *time.Time) sql.NullString {
+	if t == nil || t.IsZero() {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: formatTime(*t), Valid: true}
+}

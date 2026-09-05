@@ -119,6 +119,7 @@ func (s *UserStore) Delete(ctx context.Context, id string) error {
 		`DELETE FROM totp_secrets WHERE user_id = ?`,
 		`DELETE FROM webauthn_credentials WHERE user_id = ?`,
 		`DELETE FROM recovery_codes WHERE user_id = ?`,
+		`DELETE FROM api_keys WHERE user_id = ?`,
 		`UPDATE audit_events SET user_id = NULL WHERE user_id = ?`,
 		`UPDATE login_attempts SET user_id = NULL WHERE user_id = ?`,
 	} {

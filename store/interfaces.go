@@ -556,6 +556,11 @@ type APIKey struct {
 // request, which is why it is a single lookup on a unique index and why
 // nothing in this interface returns a joined or aggregated shape.
 type APIKeyStore interface {
+	// Create inserts the key. A zero CreatedAt means the store assigns
+	// it; a set one is stored as given, so that one clock decides both
+	// it and ExpiresAt — the caller derives the expiry from its own
+	// now(), and a store stamping only the other half is how a row ends
+	// up claiming it expired before it was created.
 	Create(ctx context.Context, key APIKey) error
 
 	// GetByKeyHash returns the key with this hash whatever its state —
