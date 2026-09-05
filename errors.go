@@ -29,4 +29,14 @@ var (
 	// generated key, and whitespace in a credential that travels in an
 	// Authorization header is a support ticket waiting to happen.
 	ErrInvalidAPIKeyPrefix = errors.New("cryden: Config.APIKeyPrefix must not contain whitespace or an underscore")
+	// ErrMissingWebhookSender is returned by New if Config.WebhookEvents
+	// is set but Config.Webhooks isn't. A subscription with nothing to
+	// deliver to is silence, and silence is what this feature looks like
+	// when it is broken — so it is reported at construction rather than
+	// discovered when the first lockout goes unannounced.
+	ErrMissingWebhookSender = errors.New("cryden: Config.Webhooks is required when Config.WebhookEvents is set")
+	// ErrInvalidWebhookEvent is returned by New if Config.WebhookEvents
+	// contains an empty event type. It can never match anything the
+	// engine records, so it is a typo rather than a subscription.
+	ErrInvalidWebhookEvent = errors.New("cryden: Config.WebhookEvents must not contain an empty event type")
 )

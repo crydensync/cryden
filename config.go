@@ -106,6 +106,28 @@ type Config struct {
 	// separates the label from the secret. Ignored unless APIKeys is
 	// set.
 	APIKeyPrefix string
+	// Webhooks is optional — set it to have the engine hand every
+	// subscribed event to the host app as it is recorded. Ships no
+	// implementation (see notify.WebhookSender's own doc comment): the
+	// engine makes no outbound HTTP call, so the endpoint, the signing
+	// and the retries are the host's. Left nil, nothing about the engine
+	// changes and no event is dispatched anywhere.
+	//
+	// Delivery is synchronous, on the request path, and a send error is
+	// logged rather than returned — a webhook never fails the login it
+	// was reporting.
+	Webhooks notify.WebhookSender
+	// WebhookEvents selects which events reach Webhooks. Left empty it is
+	// DefaultWebhookEvents(), which is the actionable, low-volume subset
+	// and deliberately excludes login_success, login_failed and
+	// token_rotated; set it to take exact control. Ignored unless
+	// Webhooks is set, and setting it without Webhooks is an error rather
+	// than a subscription to nowhere.
+	//
+	// An event type the engine never records is never delivered and is
+	// not an error — there is no canonical list to validate against, and
+	// inventing one would be a second place to keep the constants.
+	WebhookEvents []store.AuditEventType
 	// PasswordPolicy is checked on every SignUp/ChangePassword. Unlike
 	// TOTP/WebAuthn, this has no "unconfigured means off" state —
 	// leaving it as the entire zero value (security.PasswordPolicy{})
@@ -266,6 +288,14 @@ func (c *Config) validate() error {
 	if c.APIKeyPrefix != "" && strings.ContainsAny(c.APIKeyPrefix, " \t\r\n_") {
 		return ErrInvalidAPIKeyPrefix
 	}
+	if len(c.WebhookEvents) > 0 && c.Webhooks == nil {
+		return ErrMissingWebhookSender
+	}
+	for _, t := range c.WebhookEvents {
+		if t == "" {
+			return ErrInvalidWebhookEvent
+		}
+	}
 	return nil
 }
 
@@ -317,6 +347,9 @@ func (c *Config) applyDefaults() {
 	}
 	if c.APIKeyPrefix == "" {
 		c.APIKeyPrefix = "ck"
+	}
+	if c.Webhooks != nil && len(c.WebhookEvents) == 0 {
+		c.WebhookEvents = DefaultWebhookEvents()
 	}
 	if c.Logger == nil {
 		c.Logger = logger.NewConsoleJSONLogger()
