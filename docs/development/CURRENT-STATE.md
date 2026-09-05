@@ -214,9 +214,9 @@ re-derive it**:
   `CountTargetsForIP`, added by item 9 above against the same table.
 
 
-## Tier 3 — Infrastructure & Extensibility: IN PROGRESS (6 of 7)
+## Tier 3 — Infrastructure & Extensibility: DONE (7 of 7)
 
-One item left. See `NEXT.md`.
+Tier 4 is next. See `NEXT.md`.
 
 ### Item 12 — Argon2id hasher: DONE, branch `feat/argon2id-hasher`
 
@@ -576,6 +576,53 @@ a sender that panics). Manual guide: `docs/testing/webhooks.md`.
 `gofmt -l`, `go build ./...`, `go vet ./...` and `go test ./...` all
 clean here.
 
+### Item 18 — custom email templates: DONE (no engine change), branch `feat/custom-email-templates`
+
+**Nothing was built, and that is the finding.** The queue entry said to
+check `EmailSender`/`MagicLinkSender` first because there was "a real
+chance this needs no engine change at all." There is nothing to build.
+Checked and confirmed:
+
+- Two interfaces, two methods, **two call sites in the whole tree**:
+  `SendVerification` at `auth/email.go:70` (email change) and
+  `SendMagicLink` at `auth/magiclink.go:88` (passwordless login). Each
+  interface has exactly one purpose, so the "which email am I sending?"
+  ambiguity `notify/magic_link_sender.go`'s doc comment worried about
+  does not exist in practice.
+- Both methods pass `(ctx, to, rawToken)`. The engine composes no
+  subject, no body, no HTML, no plain-text part, no from-address and no
+  URL — it does not know the host's domain or routing, as both doc
+  comments already say.
+- `Config` has exactly two email-shaped fields and both are those
+  interfaces. There is no template, subject or from-address knob to
+  override.
+- No third or fourth template is missing either: there is no signup
+  verification flow (`store.PurposeEmailVerify` has no producer outside
+  a store smoke test) and no password-reset flow at all
+  (`ChangePassword` requires the current password), so nothing else in
+  the engine wants to send mail.
+
+Built instead of a feature: `docs/testing/custom-email-templates.md`
+answering the question behind the item (how a host controls what those
+emails say, in full), `cmd/smoketest/custom-email-templates` (54 checks
+over ten sections — a real host mailer with `html/template` bodies, two
+languages and two providers, whose own composed URL round-trips back
+into `ConfirmEmailChange` and `CompleteMagicLink`), and
+`custom_email_templates_test.go`, three tests that pin the verdict by
+reflection so a `Config.EmailSubject` added later fails `go test ./...`
+rather than quietly making the guide wrong.
+
+One real gap recorded rather than filled: both TTLs
+(`changeEmailTokenTTL` 1 hour, `magicLinkTTL` 15 minutes) are unexported
+and not passed to the sender, so a template that says "expires in 1
+hour" hardcodes a number that could drift. Exporting two constants would
+fix it; adding a parameter to either send method would break every
+existing host implementation at compile time, which is why
+`MagicLinkSender` was a new interface rather than a second method on
+`EmailSender`. Queue it as its own item if the project owner wants it —
+it is not done here, on the item's own "don't build something
+speculative to have built something" instruction.
+
 ## Tier 4 — AI-assisted admin features: NOT STARTED
 
 Four items, all read-only/surface-only by explicit, non-negotiable
@@ -664,6 +711,14 @@ project brief.
   10-12, 14, 15 and 16 applies if it is lifted onto `main` alone. It
   adds **no dependency**, **no migration** and no store change at all —
   it delivers events the audit table already recorded. Unmerged and
+  unpushed.
+- `feat/custom-email-templates` — item 18, complete, 4 commits,
+  branched from `feat/webhooks` at `6f84095`, the tip of the chain, so
+  this branch carries items 8 through 18. **Contains no engine change at
+  all** — the `feat/` prefix is the naming convention, not a claim. Adds
+  one root test file, one smoke test and one guide, touching no existing
+  Go file, so unlike every branch before it this one lifts onto `main`
+  with nothing to reconcile. No dependency, no migration. Unmerged and
   unpushed.
 - `fix/committed-smoketest-binary` — not a queue item. A pre-existing
   bug found while working on item 14: a 9.8 MB compiled `argon2id-hasher`
