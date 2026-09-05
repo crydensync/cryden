@@ -214,9 +214,9 @@ re-derive it**:
   `CountTargetsForIP`, added by item 9 above against the same table.
 
 
-## Tier 3 — Infrastructure & Extensibility: IN PROGRESS (5 of 7)
+## Tier 3 — Infrastructure & Extensibility: IN PROGRESS (6 of 7)
 
-Two items left. See `NEXT.md`.
+One item left. See `NEXT.md`.
 
 ### Item 12 — Argon2id hasher: DONE, branch `feat/argon2id-hasher`
 
@@ -525,6 +525,57 @@ successes plus five unknown keys recording nothing). Manual guide:
 `docs/testing/api-keys.md`. `gofmt -l`, `go build ./...`, `go vet ./...`
 and `go test ./...` all clean here.
 
+### Item 17 — webhooks: DONE, branch `feat/webhooks`
+
+The engine tells the host app what happened instead of waiting to be
+asked. `Config.Webhooks` takes a `notify.WebhookSender` —
+`SendWebhook(ctx, notify.WebhookEvent) error`, one method, **zero
+shipped implementations**, the same shape as `EmailSender` and
+`IPGeolocator`. `Config.WebhookEvents` selects which events reach it and
+defaults to `cryden.DefaultWebhookEvents()`.
+
+Wired as a **decorator over `store.AuditStore`** (`webhookRecorder` in
+`webhooks.go`), not as a parameter on the 33 `audit.Record` call sites
+and not as a second event bus. `New` wraps `Config.Audit` when
+`Webhooks` is set; `Record` writes the row and then dispatches, so every
+existing call site notifies without a line changing and nothing in
+`auth/` knows the type exists. Reads pass straight through to the
+wrapped store.
+
+`DefaultWebhookEvents()` is sixteen events, the ones bounded by human
+action, and deliberately excludes `login_success`, `token_rotated` and
+`login_failed` — a thousand logged-in users at the default 15-minute
+`AccessTokenTTL` is 4,000 `token_rotated` deliveries an hour, and
+`login_failed` volume is chosen by whoever is attacking you. It returns
+a fresh slice, so `append(cryden.DefaultWebhookEvents(), ...)` is the
+documented way to add one back. There is deliberately **no "all"**
+switch: it would silently start delivering event types added after the
+host wrote its sender.
+
+Delivery is synchronous, on the request path, immediately after the
+audit write — so the doc comment on the interface says to enqueue rather
+than make the HTTP call there. A send error is logged at Error level and
+never fails the operation; a failed audit write still delivers; a
+**panic is not recovered** and takes the request, following
+`logger/multi.go`'s own stated rule that recovery exists only where a
+second sink can preserve the record. `Metadata` is copied before
+delivery so a sender cannot rewrite audit history, and `WebhookEvent.ID`
+is a delivery/idempotency key, explicitly not the audit row's ID — no
+backend reports that back.
+
+Two new sentinels: `ErrMissingWebhookSender` (events set, no sender) and
+`ErrInvalidWebhookEvent` (an empty type). A non-empty but misspelled
+event type builds and is never delivered; there is no canonical list to
+validate against and inventing one would duplicate the constants.
+
+No store change, **no migration**, no new dependency, no external
+service. Tests: 17 in `webhooks_test.go`. Smoke test:
+`cmd/smoketest/webhooks` (75 checks over ten sections, including five
+logins and five refreshes delivering nothing, a sender that errors, and
+a sender that panics). Manual guide: `docs/testing/webhooks.md`.
+`gofmt -l`, `go build ./...`, `go vet ./...` and `go test ./...` all
+clean here.
+
 ## Tier 4 — AI-assisted admin features: NOT STARTED
 
 Four items, all read-only/surface-only by explicit, non-negotiable
@@ -605,6 +656,15 @@ project brief.
   **two migrations** that have to run before the feature works:
   `store/postgres/migrations/0007_api_keys.up.sql` and
   `store/sqlite/migrations/0002_api_keys.up.sql`. Unmerged and unpushed.
+- `feat/webhooks` — item 17, complete, 7 commits, branched from
+  `feat/api-keys` at `f11e40e`, the tip of the chain, so this branch
+  carries items 8 through 17. Touches engine files only (`config.go`,
+  `errors.go`, `engine.go`, the new `webhooks.go`) plus the new
+  `notify/webhook_sender.go`, so the same by-hand adjacency as items
+  10-12, 14, 15 and 16 applies if it is lifted onto `main` alone. It
+  adds **no dependency**, **no migration** and no store change at all —
+  it delivers events the audit table already recorded. Unmerged and
+  unpushed.
 - `fix/committed-smoketest-binary` — not a queue item. A pre-existing
   bug found while working on item 14: a 9.8 MB compiled `argon2id-hasher`
   binary was committed to the repo by item 12's session (`57a5dbd`) and
