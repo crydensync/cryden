@@ -14,19 +14,7 @@ patterns and note the assumption in `PROGRESS.md` — don't block on it.
 
 ## Tier 3 — Infrastructure & Extensibility
 
-### 1. Webhooks (item 17)
-
-Notify the host app on key events. Same question as everything else
-that reaches outward: interface-only, zero shipped implementations
-(`notify.WebhookSender` or similar), matching `EmailSender` — the
-engine surfaces the event, the host app's implementation does the
-actual HTTP call, retries, signing, etc. Decide which existing audit
-events should also trigger a webhook call (probably a configurable
-subset, not all of them) and wire it in wherever `audit.Record` is
-already called for those events — don't build a second parallel event
-bus.
-
-### 2. Custom email templates (item 18)
+### 1. Custom email templates (item 18)
 
 Check `notify.EmailSender`/`notify.MagicLinkSender` as they exist
 today first — there's a real chance this needs **no engine change at
@@ -44,19 +32,19 @@ than building something speculative to have built something.
 automatic action — no auto-lock, no auto-config-change, nothing. Every
 one of these produces information for a human to act on.
 
-### 3. Weekly digest (item 19)
+### 2. Weekly digest (item 19)
 Reads `AuditStore`, summarizes in plain English, returns text. Nothing
 else.
 
-### 4. Support-ticket assistant (item 20)
+### 3. Support-ticket assistant (item 20)
 Read-only diagnosis ("why can't user X log in") — queries
 `AuditStore`/`UserStore`/session state, produces an explanation, never
 touches anything.
 
-### 5. Config tuning advisor (item 21)
+### 4. Config tuning advisor (item 21)
 Produces a report of suggested config changes. Never applies them.
 
-### 6. Ask-AI widget (item 22)
+### 5. Ask-AI widget (item 22)
 The most complex of the four. Needs its own full design pass before
 any code — at minimum: an LLM provider interface (zero shipped
 implementations, host brings their own key/provider, same pattern as

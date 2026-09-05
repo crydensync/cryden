@@ -761,3 +761,73 @@ whose key keeps working, the audit trail, and the stored hash printed
 for inspection. No external service needed.
 
 Next in queue: item 17, webhooks.
+
+## 2026-09-05 — item 17, webhooks
+
+Branch: `feat/webhooks` (7 commits, branched from `feat/api-keys` at
+`f11e40e`). Built: `notify.WebhookSender` —
+`SendWebhook(ctx, notify.WebhookEvent) error`, one method, zero shipped
+implementations — plus `Config.Webhooks`, `Config.WebhookEvents`,
+`cryden.DefaultWebhookEvents()`, and the unexported `webhookRecorder` in
+`webhooks.go` that does the wiring. No store change, no migration, no
+new dependency.
+
+Assumptions and decisions, all of them mine to make:
+
+- **A decorator over `store.AuditStore`, not a sender parameter on the
+  33 `audit.Record` call sites.** `New` wraps `Config.Audit` when
+  `Webhooks` is set, `Record` writes the row then dispatches. The spec
+  said "wire it in wherever `audit.Record` is already called" and "don't
+  build a second parallel event bus"; wrapping the interface satisfies
+  both without touching `auth/` at all, and makes "audited but never
+  delivered" structurally impossible for event types added later.
+- **The default subset is sixteen events**, the ones bounded by human
+  action, excluding `login_success`, `token_rotated` and `login_failed`.
+  A thousand logged-in users at the default 15-minute `AccessTokenTTL`
+  is 4,000 `token_rotated` deliveries an hour, and `login_failed` volume
+  is chosen by an attacker. `DefaultWebhookEvents()` returns a fresh
+  slice so appending one back is safe and documented.
+- **No "all" switch.** It would silently start delivering event types
+  added to the engine after the host wrote its sender.
+- **Delivery is synchronous, on the request path.** The interface's doc
+  comment says to enqueue rather than make the HTTP call there. No
+  engine-side goroutine: unbounded is a leak under load, bounded is a
+  queue the host would rather own.
+- **A send error is logged and swallowed; a panic is not recovered.**
+  Following `logger/multi.go`'s own written rule — recovery exists there
+  only because a second sink can still preserve the record. Confirmed by
+  grep that it is the only `recover()` in non-test code.
+- **The audit row is written first, and a failed write still delivers.**
+  The row is the system of record; the event happened either way.
+- **`WebhookEvent.ID` is a delivery/idempotency key, not the audit row's
+  ID.** No backend reports its row ID back — Postgres uses
+  `gen_random_uuid()`, memory ignores a caller-supplied ID — so claiming
+  it was the row's would be a lie the host might join on.
+- **`Metadata` is copied before delivery.** The in-memory store holds
+  the map by reference, so a sender editing it could rewrite audit
+  history. Pinned with a test.
+- **Two sentinels, `ErrMissingWebhookSender` and
+  `ErrInvalidWebhookEvent`.** A misspelled-but-non-empty event type
+  builds and is silently never delivered: there is no canonical list of
+  event types to validate against, and inventing one would put the
+  constants in two places that must agree forever.
+- **`recovery_codes_generated` is in the default set but not
+  demonstrated in the smoke test** — generating codes requires a second
+  factor already enrolled, a TOTP dance the webhook test has no reason
+  to perform. Five other default-set events are demonstrated through
+  real facade calls instead.
+- Corrected a stale "35 call sites" to 33 in `webhooks.go` and the guide
+  after counting with grep.
+
+Verification: `gofmt -l` clean on every changed file, `go build ./...`,
+`go vet ./...` and `go test ./... -count=1` all clean (17 new tests), and
+`go run ./cmd/smoketest/webhooks` passes all 75 checks over ten sections
+— the round trip, the unconfigured path, seven default-set deliveries
+from real operations, five logins and five refreshes delivering nothing,
+an explicit subset, a sender that errors and one that panics, the audit
+log read back, distinct delivery IDs and the caller's trace ID, both
+refused configurations, and the printed payloads. No external service
+needed, no HTTP call made.
+
+Next in queue: item 18, custom email templates — which the spec itself
+flags as possibly needing no engine change at all.
