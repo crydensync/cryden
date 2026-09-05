@@ -244,11 +244,8 @@ func (d Digest) Text() string {
 			for _, e := range highlights[p.eventType] {
 				lines = append(lines, "    "+describeEvent(e))
 			}
-			// Only ever says this when detail was cut, and says it against
-			// the exact count rather than the cap: the number beside the
-			// heading is never the one that was truncated.
-			if shown := len(highlights[p.eventType]); shown > 0 && shown < n {
-				lines = append(lines, fmt.Sprintf("    (the %d most recent of %s shown)", shown, formatCount(n)))
+			if note := capNote(len(highlights[p.eventType]), n); note != "" {
+				lines = append(lines, "    "+note)
 			}
 		}
 		if len(lines) == 0 {
@@ -265,6 +262,19 @@ func (d Digest) Text() string {
 	}
 
 	return b.String()
+}
+
+// capNote says how much detail was left out, and only when some was:
+// it is measured against the exact count rather than the cap, so the
+// number beside the heading is never the one that got truncated.
+func capNote(shown, total int) string {
+	if shown == 0 || shown >= total {
+		return ""
+	}
+	if shown == 1 {
+		return fmt.Sprintf("(the most recent of %s shown)", formatCount(total))
+	}
+	return fmt.Sprintf("(the %d most recent of %s shown)", shown, formatCount(total))
 }
 
 // highlightsByType regroups Highlights for rendering, preserving the
