@@ -1,7 +1,7 @@
 # cryden — current state
 
-Last updated: 2026-09-05 (by the session that built the Redis-backed
-rate limiter). Update this file's date and content every time a session
+Last updated: 2026-09-05 (by the session that built the Argon2id
+hasher). Update this file's date and content every time a session
 finishes an item — see `CLAUDE.md`'s end-of-session checklist.
 
 ## Tagged releases
@@ -214,9 +214,61 @@ re-derive it**:
   `CountTargetsForIP`, added by item 9 above against the same table.
 
 
-## Tier 3 — Infrastructure & Extensibility: NOT STARTED
+## Tier 3 — Infrastructure & Extensibility: IN PROGRESS (1 of 7)
 
-Seven items. See `NEXT.md`.
+Six items left. See `NEXT.md`.
+
+### Item 12 — Argon2id hasher: DONE, branch `feat/argon2id-hasher`
+
+A **second real implementation** of the existing `security.Hasher`, not
+a replacement for bcrypt: `Hash`/`Compare` is still the whole surface
+and nothing in `auth/` can tell which one it holds.
+
+The design question the spec named — how the engine knows which
+algorithm a stored hash used, for a table holding both — is answered by
+**format sniffing**, as the spec suggested. Every hash names its own
+algorithm and carries its own parameters, so verification is stateless:
+no algorithm column, no backfill, and no column that can disagree with
+the hash next to it.
+
+Shipped as: `security/argon2idhasher.go` (`Argon2idHasher`,
+`NewArgon2idHasher`, `Argon2idParams`, `DefaultArgon2idParams` = RFC
+9106's second option 64 MiB/t=3/p=4, PHC encoding
+`$argon2id$v=19$m=…,t=…,p=…$salt$key`), `security/multihasher.go`
+(`MultiHasher`, `IdentifyHash`, `HashAlgorithm`), `Rehasher` in
+`security/hasher.go` plus `BcryptHasher.NeedsRehash`, four new sentinels
+in `security/errors.go`, `Config.Hasher`, `auth/rehash.go`, and
+`store.EventPasswordHashUpgraded`. `engine.go` wraps whatever it holds
+in a `MultiHasher` **unconditionally**. **No new module dependency** —
+`x/crypto` was already required by bcrypt.
+
+Decisions worth not re-deriving (full reasoning in `PROGRESS.md`):
+`Rehasher` is an optional second interface, never part of `Hasher`, so a
+host's own implementation keeps compiling and simply never upgrades;
+`Config.Hasher` takes an already-constructed hasher like every store
+(`BcryptCost` ignored when set), matching item 11's `RateLimiter`
+precedent rather than an algorithm enum; upgrade-on-login is in scope,
+because without it a mid-migration table never drains — accounts that
+never change their password would never move — and is fire-and-forget,
+so a store that refuses the write still lets the login through;
+"out of date" means **weaker only**, never merely different, and
+excludes `Parallelism`, a hardware-shaped knob that would otherwise
+churn every hash on a machine change; the decoder rejects `t=0`/`p=0`
+and caps `m=` at 4 GiB because `x/crypto` *panics* on the first two and
+would try to allocate terabytes for the third.
+
+Tests: `security/argon2idhasher_test.go` and
+`security/multihasher_test.go` (83 cases in the package),
+`auth/rehash_test.go` (7 funcs, four of them negative), 4 in
+`config_test.go` including a facade-level mid-migration login. Smoke
+test: `cmd/smoketest/argon2id-hasher` (120 checks over twelve sections,
+no database, no server). Manual guide:
+`docs/testing/argon2id-hasher.md`. One unrelated pre-existing test flake
+was fixed in passing: `auth`'s login-timing regression test compared a
+single bcrypt sample per path, which noise could breach; it now takes
+the fastest of five. `PROGRESS.md` has the detail. Everything ran clean
+here — `go build ./...`, `go vet ./...`, `go test ./...`, `gofmt -l` —
+this item needed no external service, unlike item 11.
 
 ## Tier 4 — AI-assisted admin features: NOT STARTED
 
@@ -256,6 +308,13 @@ project brief.
   in the same region they did, so the same by-hand adjacency applies if
   it is lifted onto `main` alone. It is also the only item so far that
   adds a **direct third-party dependency** (`go-redis`) to `go.mod`.
+  Unmerged and unpushed.
+- `feat/argon2id-hasher` — item 12, complete, 9 commits, branched from
+  `feat/redis-rate-limiter` at `334c071`, the tip of the chain, so this
+  branch carries items 8 through 12. Same adjacency caveat as the two
+  above: `Config.Hasher` sits immediately below `Config.RateLimiter`, so
+  lifting item 12 onto `main` alone means resolving that by hand. Unlike
+  item 11 it adds no dependency and needs no external service to verify.
   Unmerged and unpushed.
 
 Nothing else in flight. Each new session picks the top item off
