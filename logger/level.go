@@ -31,16 +31,31 @@ const (
 // unrecognized severity is still a record, and losing it would be worse
 // than filing it one step off.
 func (l Level) String() string {
-	switch {
-	case l <= LevelDebug:
+	switch clamp(l) {
+	case LevelDebug:
 		return "debug"
-	case l == LevelInfo:
+	case LevelInfo:
 		return "info"
-	case l == LevelWarn:
+	case LevelWarn:
 		return "warn"
 	default:
 		return "error"
 	}
+}
+
+// clamp bounds a Level to the four constants. Every place in this
+// package that dispatches on or compares a Level runs it through here
+// first, so an unrecognized severity is treated one consistent way —
+// filed at the nearest end — rather than being dropped by the filter and
+// kept by the sink, or the reverse.
+func clamp(l Level) Level {
+	switch {
+	case l < LevelDebug:
+		return LevelDebug
+	case l > LevelError:
+		return LevelError
+	}
+	return l
 }
 
 // ParseLevel turns a configured string — LOG_LEVEL=info, a YAML field,

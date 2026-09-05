@@ -134,20 +134,19 @@ var _ ContextLogger = contextBound{}
 // would cost you your trace IDs, which is not a trade anyone would make
 // on purpose.
 //
-// The comparisons rather than an exhaustive switch are deliberate: a
-// Level outside the four constants is clamped to the nearest end, never
-// dropped, matching Level.String.
+// A Level outside the four constants is clamped to the nearest end,
+// never dropped: an unrecognized severity is still a record.
 func emit(ctx context.Context, l Logger, level Level, msg string, fields map[string]string) {
 	if cl, ok := l.(ContextLogger); ok {
 		cl.Log(ctx, level, msg, fields)
 		return
 	}
-	switch {
-	case level <= LevelDebug:
+	switch clamp(level) {
+	case LevelDebug:
 		l.Debug(msg, fields)
-	case level == LevelInfo:
+	case LevelInfo:
 		l.Info(msg, fields)
-	case level == LevelWarn:
+	case LevelWarn:
 		l.Warn(msg, fields)
 	default:
 		l.Error(msg, fields)
