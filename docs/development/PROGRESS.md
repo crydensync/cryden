@@ -514,3 +514,93 @@ whenever `TOTP` is set — both smoke-test wiring fixes, no engine change.
 No external service was needed, unlike item 11.
 
 Next in queue: item 14, cloud logger integrations.
+
+## 2026-09-05 — Cloud logger integrations (item 14)
+
+Branch: `feat/cloud-loggers`, off `feat/sqlite-store` at `5862412` (so it
+carries items 8–14). 11 commits.
+
+Answered the spec's own question — interface-only or a shipped
+implementation — with **interface-only, zero vendor clients**, then built
+the four local pieces a host needs on this side of that call:
+`ContextLogger`/`LogFunc`/`ForContext`, `LevelFilter`, `Redactor`
+(masking and keyed-hashing), `MultiLogger`, plus `Level`/`ParseLevel`,
+`NopLogger` and two sentinel errors. Seven new files in `logger/`, one
+new method in `engine.go`, a 24-site substitution in `cryden.go`, six new
+`logger` test files, two new facade tests, a 50-check smoke test and a
+manual guide. No new `Config` field, no dependency change.
+
+Assumptions and decisions made without asking:
+
+- **No `DatadogLogger`, and the package doc says never.** The spec's test
+  applies directly: a vendor integration is an outbound HTTPS call with
+  an API key, batching, retry and payload rules attached, which is what
+  kept `BreachedPasswordChecker` and `IPGeolocator` implementation-free.
+  Stdout-as-JSON is already the integration point every shipper can tail.
+  Shipping nothing at all would have been a shrug, though — the value is
+  in the local half, which contains no socket.
+- **The context binding happens once per facade call.** Trace IDs live
+  under host-private context keys, so a hosted sink needs the context
+  itself. The three ways to get it there were: add a ctx parameter to
+  `Logger` (breaks every host implementation), thread ctx through the 91
+  log call sites in `auth/`/`session/`/`token/` (invasive, and those
+  packages have no ctx at most of them), or bind once at the only layer
+  holding both. `Engine.logFor(ctx)` is the third: 24 edits in one file,
+  nothing below the facade touched. `ContextLogger` is a second optional
+  interface — the `MagicLinkSender`/`Rehasher` precedent — and
+  `ForContext` hands a plain Logger back unchanged, which is why the
+  console default keeps working and costs nothing.
+- **Every wrapper implements `ContextLogger` and forwards through one
+  shared `emit`.** The trap this avoids is real and quiet: a filter or
+  redactor that forwarded through `Debug`/`Info`/`Warn`/`Error` would
+  strip the trace ID on the way past, making "cheap" and "correlated" a
+  choice a host should never have to make.
+- **One `clamp`, shared by `Level.String`, `emit` and `LevelFilter`.** An
+  out-of-range level must not be droppable by the filter while still
+  being loggable by the sink. Unknown severities clamp rather than
+  vanish — losing a record to a bad level is the worst outcome available.
+- **Hashing mode is keyed HMAC-SHA256, not a bare digest.** The whole
+  IPv4 space is 2^32 values, so an unkeyed hash of an address is an
+  afternoon of precomputation away from being the address. Keyed and
+  stable, it still answers "one IP, forty accounts", which is the shape
+  credential stuffing has and the thing `[redacted]` erases. Truncated to
+  64 bits: readable in a log line, collision-free at any real volume.
+  An empty key is refused outright (`ErrMissingHashKey`).
+- **Redaction keeps the field key and only replaces the value**, never
+  mutates the caller's map (it copies when it changes something), and
+  covers `fields` only — engine messages are constant strings, and
+  scanning free text for personal data is a heuristic this package will
+  not pretend to do reliably. `DefaultRedactedKeys()` is `ip`, `user_id`
+  and `requesting_user_id`; the last was added after surveying every
+  field key the engine logs, because a redactor that lets a user ID
+  through on account of a key prefix is worse than none. Keys match
+  case-insensitively for the same reason. It is a function, not a var, so
+  the default set is not editable from anywhere.
+- **No `Config.LogLevel`, `LogFormat` or `RedactFields`.** Hosts compose
+  wrappers around their own sink, the same way `Config.RateLimiter` and
+  `Config.Hasher` are injected already constructed. `Config.Logger` stays
+  the only knob and stays optional.
+- **`console.go` timestamps moved to `RFC3339Nano`.** One login emits
+  several records; at second precision they all carry the same timestamp
+  and nothing downstream can order them. This is the only behavioural
+  change to existing output in the item, and the smoke test asserts it
+  end to end by requiring distinct timestamps across one login's lines.
+- **Also fixed, on its own branch: a committed 9.8 MB binary.** Item 12's
+  session committed a compiled `argon2id-hasher` smoke-test binary
+  (`57a5dbd`), still tracked on every branch since. `fix/committed-
+  smoketest-binary` (one commit, `a59d065`, off `feat/sqlite-store`)
+  untracks it and extends `.gitignore` to cover every smoke-test binary
+  name. It deliberately does **not** rewrite history to drop the blob —
+  that is the human's call.
+
+Verification: `gofmt -l` clean, `go build ./...`, `go vet ./...` and `go
+test ./...` all clean, and `go run ./cmd/smoketest/cloud-loggers` passes
+all 50 checks over eight sections — a `ContextLogger` sink, a
+context-free one, level filtering, both redaction modes, fan-out, a sink
+that panics mid-login, and the stdout default. No external service
+needed. Nothing surprising came up: the level filter dropping exactly the
+two `info` completions while keeping the `warn` matched the survey of
+what the engine actually logs (one `debug` call site in the entire
+engine, `error` used only for audit-write failures).
+
+Next in queue: item 15, extensible JWT claims.

@@ -214,9 +214,9 @@ re-derive it**:
   `CountTargetsForIP`, added by item 9 above against the same table.
 
 
-## Tier 3 — Infrastructure & Extensibility: IN PROGRESS (2 of 7)
+## Tier 3 — Infrastructure & Extensibility: IN PROGRESS (3 of 7)
 
-Five items left. See `NEXT.md`.
+Four items left. See `NEXT.md`.
 
 ### Item 12 — Argon2id hasher: DONE, branch `feat/argon2id-hasher`
 
@@ -331,6 +331,63 @@ Manual guide: `docs/testing/sqlite-store.md`. Everything ran clean here —
 `go build ./...`, `go vet ./...`, `go test ./...`, `gofmt -l` — no
 external service needed, unlike item 11.
 
+### Item 14 — cloud logger integrations: DONE, branch `feat/cloud-loggers`
+
+**Interface-only, zero vendor implementations** — the answer the spec
+pointed at, confirmed rather than assumed. Every hosted log vendor is an
+outbound HTTPS call carrying an API key with its own batching, retry and
+payload rules, which is the same test that kept `BreachedPasswordChecker`
+and `IPGeolocator` implementation-free; and stdout-as-JSON is already the
+universal integration point, since any shipper can tail it. There is no
+`logger.DatadogLogger` and the package doc says there never will be.
+
+Shipping *nothing* would have been a shrug, though: a host pointing a
+shipper at cryden hits four gaps immediately, and all four are pure local
+code with no socket in them. So `logger/` gains seven files —
+`context.go` (`ContextLogger`, `LogFunc`, `ForContext`), `level.go`
+(`Level`, `ParseLevel`, `clamp`), `filter.go` (`LevelFilter`),
+`redact.go` (`Redactor`, masking and keyed-hashing modes,
+`DefaultRedactedKeys`), `multi.go` (`MultiLogger`), `nop.go`
+(`NopLogger`), `errors.go` (`ErrUnknownLevel`, `ErrMissingHashKey`) —
+plus a rewritten package doc and one change to `console.go`.
+
+The engine change is deliberately small: `Engine.logFor(ctx)` in
+`engine.go` and an `e.log` → `e.logFor(ctx)` substitution at 24 call
+sites in `cryden.go`. That is the whole cost of trace correlation.
+`Logger` itself is **unchanged and frozen** — adding a ctx parameter
+would break every host implementation in existence, so `ContextLogger` is
+a separate optional interface, the `MagicLinkSender`/`Rehasher`
+precedent, and `ForContext` returns a plain Logger untouched. `auth/`,
+`session/`, `token/` and every store are untouched, and there is **no new
+`Config` field** — not even `LogLevel`: hosts compose wrappers around
+their own sink, the way `RateLimiter` and `Hasher` are injected already
+built. `go.mod` is unchanged.
+
+Decisions worth not re-deriving (full reasoning in `PROGRESS.md`): the
+ctx binding happens **once per facade call** rather than being threaded
+through 91 log call sites in `auth/`; **every wrapper implements
+`ContextLogger`** and forwards through one shared `emit`, so filtering or
+redacting can never silently strip the trace ID a hosted sink was bought
+for; one `clamp` shared by `Level.String`, `emit` and `LevelFilter`, so
+an out-of-range level cannot be dropped by the filter and kept by the
+sink; redaction is **keyed HMAC-SHA256** in hashing mode, because the
+IPv4 space is 2^32 values and an unkeyed digest of an address is a lookup
+table away from the address; the field **key stays present** and only the
+value is replaced, so a vendor's index does not change shape; and
+`console.go`'s timestamp moved `RFC3339` → **`RFC3339Nano`**, since at
+second precision one login's records share a timestamp and nothing
+downstream can order them.
+
+Tests: six `_test.go` files under `logger/` (level, context, filter,
+multi, redact, console — plus shared fakes in `helpers_test.go`) and two
+facade tests in `new_facade_test.go` proving a real `SignUp` hands the
+call context to a `ContextLogger` and still logs to a context-free one.
+Smoke test: `cmd/smoketest/cloud-loggers` (50 checks over eight
+sections), including a sink that panics mid-login and the stdout default.
+Manual guide: `docs/testing/cloud-loggers.md`. `gofmt -l`, `go build
+./...`, `go vet ./...` and `go test ./...` all clean here; no external
+service needed.
+
 ## Tier 4 — AI-assisted admin features: NOT STARTED
 
 Four items, all read-only/surface-only by explicit, non-negotiable
@@ -386,6 +443,23 @@ project brief.
   own. It does add a dependency, `modernc.org/sqlite`, but only for tests
   and `cmd/smoketest/sqlite-store`; `store/sqlite` itself imports no
   driver. Unmerged and unpushed.
+
+- `feat/cloud-loggers` — item 14, complete, 11 commits, branched from
+  `feat/sqlite-store` at `5862412`, the tip of the chain, so this branch
+  carries items 8 through 14. Unlike item 13 it **does** touch engine
+  files — one method in `engine.go` and a 24-site substitution in
+  `cryden.go` — so the same by-hand adjacency as items 10-12 applies if
+  it is lifted onto `main` alone. It adds **no dependency** and needs no
+  external service. Unmerged and unpushed.
+- `fix/committed-smoketest-binary` — not a queue item. A pre-existing
+  bug found while working on item 14: a 9.8 MB compiled `argon2id-hasher`
+  binary was committed to the repo by item 12's session (`57a5dbd`) and
+  is still tracked on every branch from there on. One commit
+  (`a59d065`), branched from `feat/sqlite-store`, untracking the file and
+  extending `.gitignore` to cover every smoke-test binary name.
+  It does not remove the blob from history — that needs a rewrite, which
+  is the human's call, not something a session should do unasked.
+  Unmerged and unpushed.
 
 Nothing else in flight. Each new session picks the top item off
 `NEXT.md`, creates its own branch, and this section should be updated to
