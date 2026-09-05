@@ -39,10 +39,7 @@ type LevelFilter struct {
 // inside a log statement would take down the login that was only trying
 // to mention something.
 func NewLevelFilter(inner Logger, min Level) *LevelFilter {
-	if inner == nil {
-		inner = NewNopLogger()
-	}
-	return &LevelFilter{inner: inner, min: clamp(min)}
+	return &LevelFilter{inner: orNop(inner), min: clamp(min)}
 }
 
 // Min reports the threshold in force, for a host app that wants to log
