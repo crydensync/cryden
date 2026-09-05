@@ -103,4 +103,47 @@ func (s *AuditStore) query(ctx context.Context, where string, arg any, limit int
 	return out, rows.Err()
 }
 
+// CountByType counts the events recorded at or after since, grouped by
+// type, in one query — no audit row leaves the database to be counted.
+//
+// The comparison is a string comparison, which is only correct because
+// created_at is the package's fixed-width UTC layout: every timestamp
+// is exactly the same length with the same offset, so lexicographic
+// order is chronological order. formatTime is what guarantees that, and
+// is why since goes through it rather than being passed as a time.Time
+// for a driver to render however it likes.
+//
+// Unlike Postgres this one is indexed for free on the type side
+// (idx_audit_events_type), though a GROUP BY over a date range still
+// scans; a SQLite audit table is small enough that this is a
+// non-question.
+func (s *AuditStore) CountByType(ctx context.Context, since time.Time) (map[store.AuditEventType]int, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT type, COUNT(*)
+		FROM audit_events
+		WHERE created_at >= ?
+		GROUP BY type
+	`, formatTime(since))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	counts := make(map[store.AuditEventType]int)
+	for rows.Next() {
+		var (
+			eventType string
+			n         int
+		)
+		if err := rows.Scan(&eventType, &n); err != nil {
+			return nil, err
+		}
+		counts[store.AuditEventType(eventType)] = n
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return counts, nil
+}
+
 var _ store.AuditStore = (*AuditStore)(nil)

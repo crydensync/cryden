@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 	"time"
 
@@ -200,5 +201,148 @@ func TestAuditStore_SearchByTypeCrossesUsers(t *testing.T) {
 
 	if none, err := audit.SearchByType(ctx, store.EventAccountLocked, 10); err != nil || len(none) != 0 {
 		t.Errorf("SearchByType for an unused type: %d rows, %v", len(none), err)
+	}
+}
+
+// seedAuditAt writes rows at an exact instant. Record stamps its own
+// created_at from the clock, so a raw insert is the only way to place a
+// row in the past — and it goes through formatTime deliberately, since
+// a row written with any other layout is the bug CountByType's string
+// comparison would hide.
+func seedAuditAt(t *testing.T, db *sql.DB, at time.Time, eventType store.AuditEventType, n int) {
+	t.Helper()
+	for i := 0; i < n; i++ {
+		id, err := newID()
+		if err != nil {
+			t.Fatalf("newID: %v", err)
+		}
+		_, err = db.Exec(`
+			INSERT INTO audit_events (id, type, user_id, ip, metadata, created_at)
+			VALUES (?, ?, NULL, NULL, NULL, ?)
+		`, id, string(eventType), formatTime(at))
+		if err != nil {
+			t.Fatalf("insert audit row: %v", err)
+		}
+	}
+}
+
+func TestAuditStore_CountByType(t *testing.T) {
+	db := newTestDB(t)
+	audit := NewAuditStore(db)
+	now := time.Now()
+	seedAuditAt(t, db, now.Add(-time.Hour), store.EventLoginSuccess, 4)
+	seedAuditAt(t, db, now.Add(-time.Hour), store.EventLoginFailed, 2)
+	seedAuditAt(t, db, now.Add(-time.Hour), store.EventAccountLocked, 1)
+
+	counts, err := audit.CountByType(context.Background(), now.Add(-24*time.Hour))
+	if err != nil {
+		t.Fatalf("CountByType: %v", err)
+	}
+	want := map[store.AuditEventType]int{
+		store.EventLoginSuccess:  4,
+		store.EventLoginFailed:   2,
+		store.EventAccountLocked: 1,
+	}
+	for eventType, n := range want {
+		if counts[eventType] != n {
+			t.Errorf("%s = %d, want %d", eventType, counts[eventType], n)
+		}
+	}
+	if len(counts) != len(want) {
+		t.Errorf("got %d types, want %d: %v", len(counts), len(want), counts)
+	}
+}
+
+// The window bound is a TEXT comparison, which only works because every
+// created_at is the same fixed-width UTC layout. A row an hour outside
+// the window must be excluded, and one on the boundary included.
+func TestAuditStore_CountByType_WindowBounds(t *testing.T) {
+	db := newTestDB(t)
+	audit := NewAuditStore(db)
+	since := time.Now().Add(-7 * 24 * time.Hour)
+	seedAuditAt(t, db, since.Add(-time.Hour), store.EventSignupSuccess, 3)   // before
+	seedAuditAt(t, db, since, store.EventSignupSuccess, 1)                   // exactly on it
+	seedAuditAt(t, db, since.Add(48*time.Hour), store.EventSignupSuccess, 2) // inside
+
+	counts, err := audit.CountByType(context.Background(), since)
+	if err != nil {
+		t.Fatalf("CountByType: %v", err)
+	}
+	if counts[store.EventSignupSuccess] != 3 {
+		t.Errorf("signup_success = %d, want 3 — boundary inclusive, the three older rows excluded", counts[store.EventSignupSuccess])
+	}
+}
+
+// A timestamp in another timezone must land in the same window as its
+// UTC equivalent: formatTime normalises, so this is really a test that
+// since is not passed to the driver raw.
+func TestAuditStore_CountByType_SinceIsTimezoneIndependent(t *testing.T) {
+	db := newTestDB(t)
+	audit := NewAuditStore(db)
+	base := time.Now().Add(-2 * time.Hour)
+	seedAuditAt(t, db, base, store.EventLoginSuccess, 2)
+
+	since := base.Add(-time.Minute).In(time.FixedZone("UTC+9", 9*60*60))
+	counts, err := audit.CountByType(context.Background(), since)
+	if err != nil {
+		t.Fatalf("CountByType: %v", err)
+	}
+	if counts[store.EventLoginSuccess] != 2 {
+		t.Errorf("login_success = %d, want 2 with a UTC+9 since", counts[store.EventLoginSuccess])
+	}
+}
+
+func TestAuditStore_CountByType_EmptyWindowIsEmptyNonNilMap(t *testing.T) {
+	db := newTestDB(t)
+	audit := NewAuditStore(db)
+	seedAuditAt(t, db, time.Now().Add(-30*24*time.Hour), store.EventLoginSuccess, 5)
+
+	counts, err := audit.CountByType(context.Background(), time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("CountByType: %v", err)
+	}
+	if counts == nil {
+		t.Fatal("counts is nil; an empty window must return an empty map")
+	}
+	if len(counts) != 0 {
+		t.Errorf("counts = %v, want empty", counts)
+	}
+}
+
+// Host-defined types share the table and are counted as they are found.
+func TestAuditStore_CountByType_CountsUnknownTypes(t *testing.T) {
+	db := newTestDB(t)
+	audit := NewAuditStore(db)
+	seedAuditAt(t, db, time.Now().Add(-time.Minute), store.AuditEventType("acme_invoice_paid"), 6)
+
+	counts, err := audit.CountByType(context.Background(), time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("CountByType: %v", err)
+	}
+	if counts["acme_invoice_paid"] != 6 {
+		t.Errorf("acme_invoice_paid = %d, want 6", counts["acme_invoice_paid"])
+	}
+}
+
+// Record's own rows must be countable, which is the check that Record
+// and CountByType agree on the timestamp layout.
+func TestAuditStore_CountByType_AfterRecord(t *testing.T) {
+	db := newTestDB(t)
+	audit := NewAuditStore(db)
+	ctx := context.Background()
+	seedUser(t, db, "user-1", "raymondproguy@dev.com")
+
+	for i := 0; i < 3; i++ {
+		if err := audit.Record(ctx, store.AuditEvent{Type: store.EventTokenRotated, UserID: "user-1"}); err != nil {
+			t.Fatalf("Record: %v", err)
+		}
+	}
+
+	counts, err := audit.CountByType(ctx, time.Now().Add(-time.Minute))
+	if err != nil {
+		t.Fatalf("CountByType: %v", err)
+	}
+	if counts[store.EventTokenRotated] != 3 {
+		t.Errorf("token_rotated = %d, want 3", counts[store.EventTokenRotated])
 	}
 }

@@ -51,4 +51,21 @@ func (s *AuditStore) SearchByType(ctx context.Context, eventType store.AuditEven
 	return out, nil
 }
 
+// CountByType counts the events recorded at or after since, by type.
+// Types absent from the window are absent from the map — see
+// store.AuditStore for the contract this satisfies.
+func (s *AuditStore) CountByType(ctx context.Context, since time.Time) (map[store.AuditEventType]int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	counts := make(map[store.AuditEventType]int)
+	for _, e := range s.events {
+		// !Before rather than After: "at or after since", so an event
+		// recorded on the boundary instant is inside the window.
+		if !e.CreatedAt.Before(since) {
+			counts[e.Type]++
+		}
+	}
+	return counts, nil
+}
+
 var _ store.AuditStore = (*AuditStore)(nil)
