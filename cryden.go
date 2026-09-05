@@ -9,6 +9,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/crydensync/cryden/v2/admin"
 	"github.com/crydensync/cryden/v2/auth"
 	"github.com/crydensync/cryden/v2/session"
 	"github.com/crydensync/cryden/v2/store"
@@ -543,4 +544,36 @@ func publicAPIKey(r store.APIKey) APIKey {
 		CreatedAt:  r.CreatedAt,
 		LastUsedAt: r.LastUsedAt,
 	}
+}
+
+// WeeklyDigest summarises the last seven days of audit history as plain
+// text: what happened, how often, and the individual events worth a
+// human's attention, newest first. Mail it, print it, post it to a
+// channel — it is a string, and formatting it is the whole job.
+//
+// Read-only, and structurally so: the digest is built through an
+// interface carrying no way to write anything (see admin.AuditReader).
+// It never locks an account, changes a setting or records an event of
+// its own, so running it twice is exactly like running it once.
+//
+// The counts are exact and come from the store, including event types
+// this engine does not define — a host recording its own events into
+// the same audit table sees them in its digest rather than losing them.
+func WeeklyDigest(ctx context.Context, e *Engine) (string, error) {
+	return DigestSince(ctx, e, time.Now().Add(-admin.DefaultDigestWindow))
+}
+
+// DigestSince is WeeklyDigest over a window you choose: the same report
+// covering everything recorded at or after since. The window always
+// ends now — a digest is a report on the run-up to the present, and
+// there is no historical-slice read behind it.
+//
+// A since in the future is not an error, it is an empty window, and the
+// digest says so.
+func DigestSince(ctx context.Context, e *Engine, since time.Time) (string, error) {
+	digest, err := admin.BuildDigest(ctx, e.audit, since)
+	if err != nil {
+		return "", err
+	}
+	return digest.Text(), nil
 }
