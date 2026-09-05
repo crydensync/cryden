@@ -72,7 +72,7 @@ func DefaultWebhookEvents() []store.AuditEventType {
 // webhook for the subscribed events as they are recorded.
 //
 // This is the whole wiring, and it is a decorator rather than a new
-// parameter on the 35 audit.Record call sites for one reason beyond the
+// parameter on the 33 audit.Record call sites for one reason beyond the
 // diff: those sites are the definition of "an event happened here". A
 // second mechanism alongside them would be a second thing to remember
 // at every future call site, and the failure mode of forgetting is an
