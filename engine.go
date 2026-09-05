@@ -25,6 +25,7 @@ type Engine struct {
 	webauthn        store.WebAuthnCredentialStore
 	magicLinkSender notify.MagicLinkSender
 	recoveryCodes   store.RecoveryCodeStore
+	apiKeys         store.APIKeyStore
 	breachChecker   security.BreachedPasswordChecker
 	geolocator      security.IPGeolocator
 	passwordPolicy  security.PasswordPolicy
@@ -39,6 +40,7 @@ type Engine struct {
 	totpGen          security.TOTPGenerator
 	encryptor        security.Encryptor
 	totpIssuerName   string
+	apiKeyPrefix     string
 	webauthnProvider security.WebAuthnProvider
 	webauthnRPID     string
 	log              logger.Logger
@@ -139,6 +141,7 @@ func New(cfg Config) (*Engine, error) {
 		webauthn:         cfg.WebAuthn,
 		magicLinkSender:  cfg.MagicLinkSender,
 		recoveryCodes:    cfg.RecoveryCodes,
+		apiKeys:          cfg.APIKeys,
 		breachChecker:    cfg.BreachedPasswordChecker,
 		geolocator:       cfg.Geolocator,
 		passwordPolicy:   cfg.PasswordPolicy,
@@ -152,6 +155,7 @@ func New(cfg Config) (*Engine, error) {
 		totpGen:          totpGen,
 		encryptor:        encryptor,
 		totpIssuerName:   cfg.TOTPIssuerName,
+		apiKeyPrefix:     cfg.APIKeyPrefix,
 		webauthnProvider: webauthnProvider,
 		webauthnRPID:     cfg.WebAuthnRPID,
 		log:              cfg.Logger,
