@@ -133,7 +133,14 @@ func RefreshToken(ctx context.Context, e *Engine, rawRefreshToken string) (Token
 		return Tokens{}, err
 	}
 
-	accessToken, err := e.jwtIssuer.Issue(result.Session.UserID)
+	// The rotation above has already happened by this point and cannot be
+	// undone, so a token.ClaimsProvider that fails here costs the caller
+	// the session, not just the request — they hold a refresh token the
+	// store no longer recognises and have to log in again. Deliberate: the
+	// alternative is issuing an access token whose claims are missing, and
+	// a missing claim is the kind of absence a gateway can read as
+	// permission.
+	accessToken, err := e.jwtIssuer.IssueWithContext(ctx, result.Session.UserID)
 	if err != nil {
 		return Tokens{}, err
 	}
@@ -152,6 +159,20 @@ func RefreshToken(ctx context.Context, e *Engine, rawRefreshToken string) (Token
 // user ID.
 func VerifyToken(e *Engine, accessToken string) (string, error) {
 	return e.jwtIssuer.Verify(accessToken)
+}
+
+// VerifyTokenWithClaims is VerifyToken plus whatever a configured
+// Config.AccessTokenClaims provider attached when the token was issued —
+// same validation, same user ID, and the host's own claims with the
+// engine's registered ones (sub/iat/exp) stripped out. Nil when there are
+// none, which is every token issued without a provider.
+//
+// JSON numbers arrive as float64, so a claim set as an int comes back
+// needing a float64 assertion. And these claims are a snapshot from
+// issue time: the signature proves the engine minted the token, not that
+// the role inside it survived the last fifteen minutes.
+func VerifyTokenWithClaims(e *Engine, accessToken string) (string, map[string]any, error) {
+	return e.jwtIssuer.VerifyWithClaims(accessToken)
 }
 
 // ListSessions returns all active sessions for a user.
