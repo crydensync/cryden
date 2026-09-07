@@ -577,3 +577,23 @@ func DigestSince(ctx context.Context, e *Engine, since time.Time) (string, error
 	}
 	return digest.Text(), nil
 }
+
+// DiagnoseLoginIssue answers the support ticket "why can't user X log
+// in" as plain text: whether the account is locked (and until when),
+// its current failed-attempt count, how many sessions it holds right
+// now, and its recent failure-type history (failed passwords, TOTP or
+// passkey challenges, recovery-code rejections, anomaly and
+// credential-stuffing flags), newest first.
+//
+// Read-only, and structurally so, the same way WeeklyDigest is:
+// admin.DiagnoseLogin is handed narrow interfaces with no Create,
+// LockAccount, ResetFailedAttempts, or Revoke on them, so this cannot
+// unlock the very account it is reporting on. If the account does not
+// exist at all, that is itself the answer — not an error.
+func DiagnoseLoginIssue(ctx context.Context, e *Engine, email string) (string, error) {
+	diagnosis, err := admin.DiagnoseLogin(ctx, e.users, e.audit, e.sessions, email)
+	if err != nil {
+		return "", err
+	}
+	return diagnosis.Text(), nil
+}
