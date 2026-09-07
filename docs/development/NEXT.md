@@ -28,12 +28,12 @@ Built on `feat/weekly-digest`. `cryden.WeeklyDigest` /
 `store.AuditStore.CountByType` on all three stores. See
 `CURRENT-STATE.md`.
 
-### 2. Support-ticket assistant (item 20) — NEXT
-Read-only diagnosis ("why can't user X log in") — queries
-`AuditStore`/`UserStore`/session state, produces an explanation, never
-touches anything.
+### 2. Support-ticket assistant (item 20) — DONE
+Built on `feat/support-ticket-assistant`. `cryden.DiagnoseLoginIssue`,
+new `admin.DiagnoseLogin` in the same read-only `admin` package item 19
+started. See `CURRENT-STATE.md`.
 
-### 3. Config tuning advisor (item 21)
+### 3. Config tuning advisor (item 21) — NEXT
 Produces a report of suggested config changes. Never applies them.
 
 ### 4. Ask-AI widget (item 22)
