@@ -623,11 +623,11 @@ existing host implementation at compile time, which is why
 it is not done here, on the item's own "don't build something
 speculative to have built something" instruction.
 
-## Tier 4 — AI-assisted admin features: IN PROGRESS (1 of 4)
+## Tier 4 — AI-assisted admin features: IN PROGRESS (2 of 4)
 
 Four items, all read-only/surface-only by explicit, non-negotiable
-requirement — no automatic action, ever. See `NEXT.md`. Item 19 done;
-items 20-22 not started.
+requirement — no automatic action, ever. See `NEXT.md`. Items 19-20
+done; items 21-22 not started.
 
 ### Item 19 — Weekly digest: DONE, branch `feat/weekly-digest`
 
@@ -685,6 +685,91 @@ Postgres is a sequential scan by design — no index on `(created_at)` or
 `(type, created_at)` — the same trade the schema already documents for
 `SearchByType`: affordable weekly, wrong per-request, and an extra
 B-tree on the busiest write path is not cheap to undo.
+
+### Item 20 — Support-ticket assistant: DONE, branch `feat/support-ticket-assistant`
+
+`cryden.DiagnoseLoginIssue(ctx, e, email)` answers "why can't user X log
+in" as plain text, read entirely from what the engine already recorded:
+whether the account exists, whether it is locked and until when, its
+current failed-attempt counter, how many sessions it holds right now,
+and its recent failure-type history (failed passwords, rejected TOTP/
+passkey/recovery-code challenges, anomaly and credential-stuffing
+flags), newest first.
+
+Same `admin` package item 19 started, same read-only-by-construction
+approach: three new narrow interfaces —
+`admin.UserByEmailReader` (`GetByEmail` only), `admin.UserAuditHistoryReader`
+(`ListByUser` on the audit store), `admin.UserSessionReader` (`ListByUser`
+on the session store) — none of which carries a write method, so
+`admin.DiagnoseLogin` cannot lock, unlock, or reset the very account
+it is reporting on. No store interface changed and no migration was
+needed; every read used already existed.
+
+**"No such account" is a finding, not an error.** A support ticket
+names an email an admin already has in front of them, so there is no
+enumeration concern to hide behind — `DiagnoseLogin` returns
+`LoginDiagnosis{Found: false}` and a plain "no account exists for this
+email address," never a sentinel error to branch on.
+
+**A lock is checked against the current time, not just presence.** A
+`User.LockedUntil` that already passed is real history, not a current
+explanation — reporting it as locked would send a support agent looking
+in the wrong place. Only a `LockedUntil` still in the future counts.
+
+**History is filtered to failure-shaped events, capped at 100.** Only
+`login_failed`, `account_locked`, `totp_challenge_failed`,
+`webauthn_challenge_failed`, `recovery_code_failed`,
+`anomaly_detected`, `credential_stuffing_detected` are listed
+individually; a `login_success` in the same window is real history and
+is deliberately excluded from that list — it isn't a reason a sign-in
+just failed, and listing it would bury the events that are. The 100 cap
+(`admin.diagnosisHistoryLimit`) exists only to stop one very old,
+very chatty account from reading its entire lifetime into one ticket —
+generous compared to the digest's cap of 10, because this report is
+about exactly one account rather than a whole system.
+
+**What this cannot see, documented rather than guessed at:**
+client-side mistakes (wrong password typed, stale autofill), an
+upstream OAuth provider outage before the request ever reaches cryden,
+and network issues between the user and the host's servers. A clean
+diagnosis (not locked, no recent failures, a session active) is itself
+a useful answer — it means the problem is outside what the engine
+recorded.
+
+New files: `admin/support.go`, `admin/support_test.go`,
+`support_facade_test.go`, `cmd/smoketest/support-ticket-assistant/`,
+`docs/testing/support-ticket-assistant.md`. Touched: `cryden.go`
+(one new facade function). No `Config` field, no migration, no new
+dependency.
+
+Tests: 7 in `admin/support_test.go` (no store at all — no-such-account,
+locked-with-history, healthy account, an expired lock correctly
+reported as unlocked, and one error-propagation case per reader), 3 in
+`support_facade_test.go` through real `SignUp`/`Login` flows. Smoke
+test: `cmd/smoketest/support-ticket-assistant` (covers an unknown
+email, a locked account with a verified-stable second read, a healthy
+account, five back-to-back diagnoses proving the account's own
+failed-attempt count and lock state never move, and a check that
+neither the password nor the JWT secret ever appear in the rendered
+text).
+
+**Toolchain note:** this session's container could reach neither
+`proxy.golang.org` nor a Go ≥1.25 toolchain (network egress is
+allowlisted to a fixed domain set that includes neither), and the
+module's `go.mod` floor is 1.25 because of `go-webauthn`'s own
+dependency requirement — unrelated to anything in this item. `admin`,
+`ai`, and `store` build and `go test` clean under the locally available
+Go 1.22 toolchain in isolation (`go build ./admin/... ./ai/...
+./store/...`, `go test ./admin/... ./ai/...` — all green), which covers
+every package this item touches directly. The root `cryden` package
+(and so `support_facade_test.go` and the smoketest) could not be
+compiled in this environment because it transitively imports
+`go-webauthn` regardless of whether WebAuthn is configured. Both files
+were reviewed carefully against the exact facade/config/engine
+signatures and are believed correct, but — unlike every other item in
+this log — were not run. Flagged here rather than claimed clean; a
+`go build ./... && go test ./...` on a host with real toolchain access
+is the one thing left to confirm.
 
 ## Tier 5 — do not start without an explicit go-ahead from the project owner
 

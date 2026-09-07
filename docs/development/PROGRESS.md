@@ -985,3 +985,50 @@ around.
 Next in queue: item 20, the support-ticket assistant — read-only
 diagnosis of why one user cannot sign in, same `admin` package, same
 non-negotiable read-only rule.
+
+## 2026-09-07 — Support-ticket assistant (item 20)
+
+Branch: `feat/support-ticket-assistant` (6 commits, unmerged, unpushed).
+
+Built: `cryden.DiagnoseLoginIssue`, read-only "why can't user X log in"
+diagnosis. Same `admin` package as the digest, same shape: narrow
+reader interfaces with no write method on them
+(`UserByEmailReader`/`UserAuditHistoryReader`/`UserSessionReader`), so
+the compiler — not a comment — enforces that a diagnosis can't lock,
+unlock, or reset the account it's reporting on. No store change, no
+migration, no `Config` field.
+
+Assumptions made, none blocking:
+- "No such account" is a finding (`LoginDiagnosis{Found: false}`), not
+  an error — this is an internal support tool for an admin who already
+  has the ticket, so there's no enumeration concern to design around,
+  unlike a public-facing endpoint would need.
+- History capped at 100 events per account (vs. the digest's 10) —
+  this report is about one account, not the whole system, so there's
+  no volume problem to guard against; the cap exists only so one very
+  old account can't pull its entire lifetime into a ticket.
+- A successful login is excluded from the "recent failures" listing on
+  purpose, even though it's real history in the same window — it isn't
+  a cause of a failed sign-in, and including it would bury the ones
+  that are.
+- Documented, not solved: this can't see client-side mistakes, upstream
+  OAuth provider outages, or network issues — a clean diagnosis is
+  itself a useful (if incomplete) answer.
+
+**Toolchain gap, flagged rather than glossed over:** this container
+cannot reach `proxy.golang.org` or download a Go ≥1.25 toolchain (only
+a fixed domain allowlist is reachable), and `go.mod` requires 1.25
+because of `go-webauthn`'s own floor — unrelated to this item.
+`admin`, `ai`, and `store` — every package this item touches — build
+and test clean standalone under the Go 1.22 available locally. The
+root `cryden` package (so `support_facade_test.go` and
+`cmd/smoketest/support-ticket-assistant`) could not be compiled here at
+all, because it transitively pulls in `go-webauthn` unconditionally.
+Both were written carefully against the real signatures in `cryden.go`/
+`config.go`/`engine.go` and reviewed by hand, but unlike every prior
+item in this log, **they were not actually run**. First thing to
+confirm on a host with real toolchain access: `go build ./... && go
+test ./... -count=1` and `go run ./cmd/smoketest/support-ticket-assistant`.
+
+Next in queue: item 21, the config tuning advisor — same `admin`
+package, same non-negotiable "report only, never applies anything."
