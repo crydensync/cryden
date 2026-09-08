@@ -99,6 +99,31 @@ engine, err := cryden.New(cryden.Config{
 
 Works with any standard Postgres — Supabase, Neon, RDS, self-hosted, etc. If your provider offers both a direct and a connection-pooled URL, use the direct (or session-mode pooled) connection string — the engine relies on multi-statement transactions during token rotation, which can misbehave under transaction-mode pgbouncer poolers.
 
+## Running against SQLite
+
+A second real backend, not a fallback — a single file, no server to run. All storage interfaces are implemented in `store/sqlite`:
+
+```go
+import (
+	"database/sql"
+
+	_ "modernc.org/sqlite" // pick any driver you like — mattn, modernc, ncruces; the package imports none itself
+	"github.com/crydensync/cryden/v2/store/sqlite"
+)
+
+db, err := sql.Open("sqlite", "file:cryden.db?_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)")
+if err := sqlite.Migrate(context.Background(), db); err != nil { /* ... */ }
+
+engine, err := cryden.New(cryden.Config{
+	JWTSecret: os.Getenv("JWT_SECRET"),
+	Users:     sqlite.NewUserStore(db),
+	Sessions:  sqlite.NewSessionStore(db),
+	Audit:     sqlite.NewAuditStore(db),
+})
+```
+
+Nothing outside `store/sqlite` changed to support this — no interface, no facade function, no `auth`/`session`/`security` code can tell which backend it's holding. `sqlite.CheckPragmas(ctx, db)` reports whether `foreign_keys` and a busy timeout are actually active on your connection (pragmas are per-connection, and `*sql.DB` is a pool, so this is worth checking rather than assuming). Foreign keys are off by default in SQLite, so `UserStore.Delete` cascades sessions/tokens/etc. by hand in a transaction rather than relying on the database to do it.
+
 ## Account lockout
 
 After repeated failed login attempts, an account is locked for a configurable duration — persistent in the database, not in-memory, so it holds even through restarts or multiple running instances. Defaults to 5 attempts / 15 minutes; override via `Config.LockoutThreshold` and `Config.LockoutDuration`.
@@ -117,9 +142,11 @@ engine, err := cryden.New(cryden.Config{
 
 The engine never sends email itself — implement `notify.EmailSender` against whatever provider you use (SendGrid, SES, SMTP), and build the actual verification URL yourself; the engine only hands you a raw token, it has no idea what your app's domain or routes look like. Calling `RequestEmailChange` without these configured returns `cryden.ErrEmailChangeNotConfigured` rather than panicking.
 
+**On custom email content:** there's no `Config.EmailSubject` or template knob, and there won't be one added casually — `SendVerification`/`SendMagicLink` hand you `(ctx, to, rawToken)` and nothing else, so you already have full control over subject, body, HTML, language, and the actual URL from inside your own `EmailSender`/`MagicLinkSender` implementation. See `docs/testing/custom-email-templates.md` for a worked example (two languages, two providers).
+
 ## OAuth (Google, GitHub, or any provider)
 
-The engine never performs an HTTP redirect and never talks to a specific provider — that's inherently HTTP-shaped work that belongs in your API layer. By the time you call into the engine, your app has already completed the provider's redirect/callback flow and confirmed the person's identity:
+The engine never performs an HTTP redirect and never talks to a specific provider — that's inherently HTTP-shaped work that belongs in your API layer. By the time you call into the engine, your app has already completed the provider's redirect/callback flow and confirmed the person's identity. `provider` is a plain string the engine never validates against a fixed list, so Google, GitHub, Microsoft, Discord, GitLab, Apple, or anything else you support all work identically — there is nothing provider-specific inside the engine to add:
 
 ```go
 engine, err := cryden.New(cryden.Config{
@@ -128,6 +155,7 @@ engine, err := cryden.New(cryden.Config{
 })
 
 tokens, err := cryden.LoginWithOAuth(ctx, engine, "google", externalID, email, callerIP, userAgent)
+// or "microsoft", "discord", "gitlab", "apple", ... — same call, same behavior
 ```
 
 `LoginWithOAuth` also doubles as signup — if neither an existing link nor an existing account matches, a new user is created automatically. If the email matches an existing password-based account that isn't linked yet, it returns `*auth.ErrOAuthEmailConflict` (retrievable via `errors.As`) rather than auto-linking — auto-linking on email match alone is an account-takeover vector if a provider's email verification ever has an edge case. Resolve it by having the person log in with their password first, then call:
@@ -325,18 +353,240 @@ Unlike TOTP/WebAuthn/recovery codes, this has **no "unconfigured means off" stat
 
 A violation returns `*auth.ErrPasswordPolicyViolation{Violations []string}` — every broken rule at once (`"min_length"`, `"max_length"`, `"require_uppercase"`, `"require_lowercase"`, `"require_digit"`, `"require_symbol"`), not just the first one hit, so you can show a user everything wrong with their password in one pass instead of a fix-resubmit-discover-the-next-problem loop. These are stable machine-readable codes, not display strings — the engine doesn't own UI copy or localization anywhere else, so it doesn't start here either.
 
-## AI-assisted admin queries (library support only)
+## Password hashing: bcrypt or Argon2id
 
-The `ai` subpackage provides the safety machinery for natural-language admin tooling — an allowlisted `QueryIntent` type, `validateIntent`, and `ExecuteQuery` — plus `store/postgres.SafeQueryStore`, a read-only query executor. This is a foundation for tools like `csax`'s CLI to build on, not a feature you call directly in application code. An LLM's output is treated as untrusted data to validate against a strict allowlist, never as SQL to execute — and the actual DB connection passed to `SafeQueryStore` must be opened with a read-only Postgres role, since that's the real safety boundary, not just the allowlist check. `ai.LLMProvider` ships zero implementations; bring your own (OpenAI, Anthropic, OpenRouter, a local model).
+Argon2id is a second real implementation of `security.Hasher`, not a replacement for bcrypt — both satisfy the same `Hash`/`Compare` surface, and nothing in the engine can tell which one a given stored hash used:
+
+```go
+argon2id, err := security.NewArgon2idHasher(security.DefaultArgon2idParams)
+
+engine, err := cryden.New(cryden.Config{
+	// ...required fields...
+	Hasher: argon2id, // or leave unset for bcrypt
+})
+```
+
+Verification is stateless — every hash names its own algorithm and parameters in its encoded form (`$argon2id$v=19$m=…,t=…,p=…$salt$key` vs. bcrypt's own format), so a table holding hashes from both algorithms (mid-migration, or forever) needs no extra column to track which is which. If you switch `Config.Hasher` on an existing user base, accounts get upgraded to the new algorithm automatically the next time they log in successfully — fire-and-forget, so a storage hiccup during the upgrade never blocks the login it rode in on. "Out of date" means weaker only (a lower cost/memory parameter than your current config), never merely different, so a hardware change alone won't churn every hash in your database.
+
+## Anomaly detection
+
+Report-only signal collection over login attempts: new IP for this account, new device (parsed from the user-agent) for this account, unusually high failure velocity for a user or an IP, refresh-token reuse, and an unusual number of concurrent sessions. Six signal codes ship: `new_ip`, `new_device`, `user_failure_velocity`, `ip_failure_velocity`, `token_reuse`, `concurrent_sessions`.
+
+```go
+engine, err := cryden.New(cryden.Config{
+	// ...required fields...
+	Anomalies:         postgres.NewAnomalyStore(db), // or memory.NewAnomalyStore()
+	AnomalyThresholds: security.DefaultAnomalyThresholds, // optional — tune sensitivity
+})
+```
+
+Runs inside every primary login path (password, magic-link, OAuth) automatically once configured. **A flagged attempt is never blocked** — it's recorded as an `anomaly_detected` audit event with the signal(s) attached, and your application decides what to do with that information (step-up verification, an alert, nothing at all). Nil-safe: leave `Anomalies` unset and this is simply off, with zero behavior change anywhere else. Impossible-travel/geo-distance detection was deliberately left out — it needs an outbound call to a geo-IP service, which is exactly what `Config.Geolocator` below is for, kept as a separate, optional concern.
+
+## Credential-stuffing detection
+
+The attack anomaly detection's per-account view structurally can't see: one IP trying one leaked password against many different accounts, where each account only ever sees a single failure. Reads the same login-attempt history anomaly detection already records — no second tracking system:
+
+```go
+engine, err := cryden.New(cryden.Config{
+	// ...required fields, and Anomalies (this reuses that store)...
+	CredentialStuffingThresholds: security.DefaultCredentialStuffingThresholds,
+})
+```
+
+Flags an `account_spray` when one IP's distinct-account failure breadth crosses the threshold within the configured window, with `unknown_account_spray` as a qualifier when most of that spray hit addresses with no real account behind them. Same report-only contract as anomaly detection — a `credential_stuffing_detected` audit event, never a block — and a configurable cooldown collapses a sustained spray into one event per IP rather than one per attempt.
+
+## Named/fingerprinted sessions
+
+Turns a bare session ID into something a person recognizes at a glance — "Chrome on macOS, San Francisco" instead of a UUID — computed on read from the `IP`/`UserAgent` every session already stores, so there's no migration and no new column:
+
+```go
+sessions, err := cryden.ListNamedSessions(ctx, engine, userID)
+for _, s := range sessions {
+	fmt.Println(s.Label) // e.g. "Chrome on macOS · San Francisco, US"
+}
+```
+
+Device parsing (browser/OS/form factor) ships as real engine code — it needs nothing beyond the user-agent string the engine already has. Geolocation is interface-only, **zero shipped implementations** — placing an IP means an outbound call or a licensed database, so it follows the same rule as `BreachedPasswordChecker`:
+
+```go
+engine, err := cryden.New(cryden.Config{
+	// ...required fields...
+	Geolocator: myGeolocatorImpl, // implements security.IPGeolocator
+})
+```
+
+Leave `Geolocator` unset and labels are device-only ("Chrome on macOS") with nothing else changing; a geolocator error costs that one label, never the listing itself.
+
+## Rate limiting: in-memory or Redis
+
+The default rate limiter keeps its counters in a Go map, which is correct for exactly one running instance — three replicas behind a load balancer keep three independent maps, so a configured limit of 10 actually lets 30 through. `security.RedisRateLimiter` is a second real implementation of the same `security.RateLimiter` interface, sharing counters across every instance:
+
+```go
+import "github.com/redis/go-redis/v9"
+
+limiter, err := security.NewRedisRateLimiter(redisClient, 10, time.Minute) // 10 attempts per minute, shared
+
+engine, err := cryden.New(cryden.Config{
+	// ...required fields...
+	RateLimiter: limiter, // or leave unset for the single-instance in-memory default
+})
+```
+
+Injected already-constructed, exactly like every store — the engine never dials Redis itself or owns the connection's lifecycle. `NewRedisRateLimiter` accepts any `redis.Scripter` (a plain `*redis.Client`, `*redis.ClusterClient`, `*redis.Ring`, or `*redis.UniversalClient` all work). **Fail-closed and load-bearing**: `SignUp`, `Login`, and `RequestMagicLink` all propagate a limiter error rather than silently allowing the request through, so once configured, Redis becomes a hard dependency of those three calls — wrap it yourself if you'd rather fail open on a Redis outage.
+
+## Structured logging & cloud log integrations
+
+`Logger` itself ships **zero vendor implementations** — Datadog, Better Stack, and every other hosted log vendor are an outbound HTTPS call with their own batching/retry/payload rules, the same reasoning that keeps `BreachedPasswordChecker` and `IPGeolocator` implementation-free. Stdout-as-JSON (the existing default) is already the universal integration point any log shipper can tail. What the `logger` package adds instead are the pieces every host hits immediately when wiring a real sink up:
+
+```go
+import "github.com/crydensync/cryden/v2/logger"
+
+hashedRedactor, err := logger.NewHashingRedactor(consoleLogger, os.Getenv("LOG_HASH_KEY"), logger.DefaultRedactedKeys()...)
+
+myLogger := logger.NewMultiLogger(
+	logger.NewLevelFilter(myVendorLogger, logger.LevelWarn), // only warnings and above reach the vendor
+	hashedRedactor, // ip/user_id fields keyed-HMAC-hashed before hitting your local console
+)
+
+engine, err := cryden.New(cryden.Config{
+	// ...required fields...
+	Logger: myLogger, // implements logger.Logger, optionally logger.ContextLogger for trace correlation
+})
+```
+
+`ContextLogger` is a separate, optional interface (`Logger` itself stays frozen so no existing implementation breaks) — implement it and the engine hands your sink the request's `context.Context` for trace-ID correlation, once per facade call. Two `Redactor` constructors are available — `NewMaskingRedactor` (replaces a value with `[redacted]`) and `NewHashingRedactor` (keyed HMAC-SHA256, never a plain unkeyed hash — the IPv4 space is small enough that an unkeyed digest of an address is just a lookup table away from the address). `NewMultiLogger` fans one log line out to as many wrapped loggers as you give it.
+
+## Extensible JWT claims
+
+`Config.AccessTokenClaims` lets your application attach its own data (roles, permissions, tenant ID — whatever your authorization layer needs) to every access token the engine issues, on both the initial login and every subsequent refresh:
+
+```go
+engine, err := cryden.New(cryden.Config{
+	// ...required fields...
+	AccessTokenClaims: myClaimsProviderFunc, // implements token.ClaimsProvider: func(ctx, userID) (map[string]any, error)
+})
+
+userID, claims, err := cryden.VerifyTokenWithClaims(engine, tokens.AccessToken)
+// claims has your custom fields, with the registered JWT claim names already stripped out
+```
+
+All seven RFC 7519 §4.1 registered claim names (`sub`, `iss`, `aud`, `exp`, `nbf`, `iat`, `jti`) are refused, all-or-nothing, if your provider tries to set any of them — `sub` in particular is what `Verify` reads the authenticated user ID from, so a provider able to overwrite it could mint a token authenticating as someone else. **A provider error fails the token issuance** — deliberately the opposite of `BreachedPasswordChecker`'s fail-open, since a silently missing claim is an absence a downstream authorization check might read as permission rather than as an error. A nil `AccessTokenClaims` is byte-for-byte today's behavior.
+
+## API keys (machine-to-machine auth)
+
+A credential for a caller with no human behind it — a CI pipeline, a backend service, a cron job — deliberately outside the second-factor system entirely: no `Login`, no pending-token pause, nothing that would prompt a machine for a code it can't produce.
+
+```go
+engine, err := cryden.New(cryden.Config{
+	// ...required fields...
+	APIKeys: postgres.NewAPIKeyStore(db), // or memory.NewAPIKeyStore()
+})
+
+rawKey, key, err := cryden.GenerateAPIKey(ctx, engine, userID, "CI pipeline", []string{"deploy"}, 0) // ttl of 0 means it never expires
+// rawKey looks like ck_<64 hex chars> — shown to you exactly once; only its hash is ever stored
+// key.ID is what RevokeAPIKey takes; key.Prefix ("ck_9f3a1c02") is safe to show in a list
+
+identity, err := cryden.AuthenticateAPIKey(ctx, engine, presentedKey)
+// identity.UserID, identity.KeyID, identity.Name, identity.Scopes
+
+keys, err := cryden.ListAPIKeys(ctx, engine, userID)
+err = cryden.RevokeAPIKey(ctx, engine, userID, key.ID)
+```
+
+Scopes are opaque strings you define — `identity.HasScope("deploy")` is exact-match only, no hierarchy, no wildcards; the engine never interprets what a scope means. Password lockout does **not** apply to keys (so failing a developer's password five times can't also take down that developer's production integrations), and there's deliberately no rate limiting on the authenticate path itself (limiting by key requires hashing and looking the key up first, at which point the expensive part is already done). Every failure on the read path — unknown, revoked, expired, malformed — returns the same `auth.ErrInvalidAPIKey`, so a caller holding a stolen key can't use error responses to sort which ones are still live.
+
+## Webhooks
+
+The engine tells your application what happened instead of waiting to be polled. `notify.WebhookSender` ships **zero implementations** — same shape as `EmailSender` and `IPGeolocator`:
+
+```go
+engine, err := cryden.New(cryden.Config{
+	// ...required fields...
+	Webhooks:      myWebhookSenderImpl, // implements notify.WebhookSender: SendWebhook(ctx, notify.WebhookEvent) error
+	WebhookEvents: cryden.DefaultWebhookEvents(), // optional — defaults to this if Webhooks is set and WebhookEvents isn't
+})
+```
+
+`DefaultWebhookEvents()` is sixteen events bounded by real human action — deliberately excluding `login_success`, `token_rotated`, and `login_failed`, since those fire at a volume that scales with your traffic (or with whoever's attacking you) rather than with anything a webhook receiver typically wants pinged about. There's intentionally no "send everything" switch, since that would silently start delivering new event types the moment a future engine version adds them, without you ever having decided that. Delivery is synchronous on the request path immediately after the audit write — the interface's own doc comment says to enqueue rather than make the real HTTP call inline — and a delivery error is logged but never fails the operation it's attached to.
+
+## AI-assisted admin features
+
+Four read-only tools built on top of the engine's own audit history and current settings — **none of them can take an action.** There is no code path anywhere in any of the four that locks an account, changes a config value, or does anything beyond reading and reporting; a human (or, for the widget, a host application's end user reading their own data) is always the one who acts on what these return.
+
+### Weekly digest
+
+```go
+report, err := cryden.WeeklyDigest(ctx, engine)          // last 7 days
+report, err := cryden.DigestSince(ctx, engine, someTime) // a window you choose
+fmt.Println(report) // plain English, fixed section order, a quiet week renders as two lines
+```
+
+### Support-ticket assistant
+
+Turns "why can't user X log in" into an answer read entirely from what's already recorded — account lock state, recent failed/rejected second-factor attempts, and current session state — never anything it has to guess at:
+
+```go
+report, err := cryden.DiagnoseLoginIssue(ctx, engine, "someone@example.com")
+fmt.Println(report) // paste straight into the support ticket
+```
+
+### Config tuning advisor
+
+Reads 30 days of audit history against your current settings (lockout threshold, rate limiter, anomaly/credential-stuffing detection, breached-password checking) and suggests changes worth considering — never applies any of them:
+
+```go
+report, err := cryden.ConfigTuningReport(ctx, engine)
+fmt.Println(report) // e.g. "Rate limiting: using the default in-memory limiter... consider a Redis-backed one"
+```
+
+### Ask-AI widget
+
+The one piece of this tier meant for a host application's **own end users**, not just admins — which makes prompt injection a real threat model rather than a theoretical one. Built on the `ai` package's existing allowlisted query machinery (`ai.LLMProvider`, `ai.QueryableStore` — both ship **zero implementations**, bring your own model and your own read-only DB role) plus one new, mandatory layer: `widget.Ask` force-scopes every query to the asking end user's own data, in code, regardless of what a model's parsed output claims:
+
+```go
+import "github.com/crydensync/cryden/v2/widget"
+
+answer, err := widget.Ask(ctx, widget.Config{
+	Provider: myLLMProvider,    // ai.LLMProvider — your model call
+	Store:    myQueryableStore, // ai.QueryableStore — a read-only DB role
+	Composer: myComposer,       // optional; nil falls back to a deterministic plain-text rendering
+}, currentUserID, question)    // currentUserID MUST come from your own auth, never from question
+```
+
+The security property this buys: a successful prompt injection can change what query a model *tries* to produce — asking about another user's sessions, say — but it cannot change what the code lets that query actually read, because the identity filter is overwritten unconditionally rather than trusted or merely validated. There's no way to reach a "you tried to access someone else's data" error either, by design — every phrasing of a question, honest or adversarial, produces the exact same query, scoped to `currentUserID`, so there's no oracle for an attacker to learn anything from trying. Full reasoning in `docs/design/ask-ai-widget.md`.
 
 ## What's in v2
 
+**Auth & login**
 - Signup, login, logout (single device + all devices)
-- OAuth login/signup (Google, GitHub, or any provider) with explicit, non-auto-linking account collision handling — see [OAuth](#oauth-google-github-or-any-provider)
+- OAuth login/signup with any provider (Google, GitHub, Microsoft, Discord, GitLab, Apple, ...) with explicit, non-auto-linking account collision handling — see [OAuth](#oauth-google-github-or-any-provider)
 - Two-factor authentication: TOTP and passkeys (WebAuthn), unified under one pause state — see [Two-factor authentication](#two-factor-authentication-totp) and [Passkeys](#passkeys-webauthn-as-a-second-factor)
 - Magic-link (passwordless) login for existing accounts, routed through the same second-factor gate — see [Magic-link login](#magic-link-passwordless-login)
 - Recovery (backup) codes as a second-factor fallback, with a safety guard against becoming a standalone backdoor once the real factor is removed — see [Recovery codes](#recovery-backup-codes)
 - Breached-password checking (interface-only, bring your own HIBP/etc.) and a configurable, secure-by-default password policy — see [Breached-password check](#breached-password-check) and [Password policy](#password-policy)
+
+**Security & monitoring**
+- Anomaly detection — new IP/device, failure velocity, token reuse, unusual concurrent sessions — report-only, never blocks — see [Anomaly detection](#anomaly-detection)
+- Credential-stuffing detection — one IP spraying many accounts, which per-account lockout structurally can't see — see [Credential-stuffing detection](#credential-stuffing-detection)
+- Named/fingerprinted sessions ("Chrome on macOS · San Francisco") computed on read, no migration — see [Named sessions](#namedfingerprinted-sessions)
+- Redis-backed rate limiter as a drop-in second implementation of the same interface, for correctness across more than one running instance — see [Rate limiting](#rate-limiting-in-memory-or-redis)
+
+**Infrastructure & extensibility**
+- Argon2id as a second password hasher alongside bcrypt, with format-sniffing verification and automatic upgrade-on-login — see [Password hashing](#password-hashing-bcrypt-or-argon2id)
+- A second full storage backend, SQLite, alongside Postgres — same interfaces, single-file deployment — see [Running against SQLite](#running-against-sqlite)
+- Cloud logger integration primitives (level filtering, redaction, fan-out) — interface-only, bring your own vendor sink — see [Structured logging](#structured-logging--cloud-log-integrations)
+- Extensible JWT claims — attach your own authorization data to every access token, registered claim names always protected — see [Extensible JWT claims](#extensible-jwt-claims)
+- API keys for machine-to-machine auth, deliberately outside the second-factor system — see [API keys](#api-keys-machine-to-machine-auth)
+- Webhooks — the engine notifies your app of key events instead of waiting to be polled — see [Webhooks](#webhooks)
+
+**AI-assisted admin tooling** (see [AI-assisted admin features](#ai-assisted-admin-features)) — all four are read-only/surface-only by design; none can lock an account, change a config value, or take any action
+- Weekly digest — plain-English activity summary
+- Support-ticket assistant — "why can't user X log in," answered from what's already recorded
+- Config tuning advisor — suggests changes against 30 days of history, never applies them
+- Ask-AI widget — the one piece exposed to a host app's own end users, with identity-scoping enforced in code against prompt injection
+- `ai` subpackage — the allowlisted, read-only query safety layer the widget and any custom admin tooling are built on
+
+**Core**
 - JWT access tokens + rotating opaque refresh tokens with theft/reuse detection
 - Session listing and revocation
 - Change password (requires current password, revokes all other sessions)
@@ -344,14 +594,13 @@ The `ai` subpackage provides the safety machinery for natural-language admin too
 - Delete account (requires current password)
 - Persistent, DB-backed account lockout after repeated failed login attempts — survives restarts, correct across multiple instances
 - Email verification primitives (token issue/confirm) — delivery is pluggable via the `notify.EmailSender` interface, the engine never sends email itself
-- Rate limiting, bcrypt password hashing, audit logging
+- Audit logging
 - Pagination and system-wide read facades (`ListAll`, `Count`, `CountActive`, `SearchByType`, `GetUser`, `ListPublicSessions`) for building admin tooling on top of the engine
-- `ai` subpackage — allowlisted, read-only query safety layer for AI-assisted admin tooling built on top of this engine (see [AI-assisted admin queries](#ai-assisted-admin-queries-library-support-only))
-- One storage backend: Postgres (interface-based, more can be added later)
+- Two storage backends: Postgres and SQLite (interface-based, more can be added later)
 
 ## What's not in v2 (yet)
 
-CLI, HTTP API, and language SDKs are separate repositories that wrap this engine — this repo is the core library only. SMS OTP, SAML, and other advanced auth methods are planned for later releases. Passkeys are currently second-factor only — passwordless *primary* login via passkeys (no password step at all) is a planned fast-follow now that magic-link forced the shared "login without a password" plumbing to exist.
+CLI, HTTP API, and language SDKs are separate repositories that wrap this engine — this repo is the core library only. SMS OTP, SAML, organizations/multi-tenancy, SSO via OIDC, RBAC/permissions, and data export/delete-my-data are all explicitly out of scope for the current backlog pending. Passkeys are currently second-factor only — passwordless *primary* login via passkeys (no password step at all) is a planned fast-follow now that magic-link forced the shared "login without a password" plumbing to exist.
 
 ## License
 
