@@ -1097,3 +1097,84 @@ item 22 needs — this doesn't need to be built from scratch, item 22 is
 a widget layer on top of it, principally adding end-user identity
 scoping that's enforced in code regardless of what a model's parsed
 intent says.
+
+## 2026-09-08 — Ask-AI widget (item 22) — Tier 4 complete
+
+Branch: `feat/ask-ai-widget` (7 commits, unmerged, unpushed).
+
+Design written first, before any code, at `docs/design/ask-ai-widget.md`
+— per the handoff note's own instruction for this specific item. The
+design's main finding: the repo already had the provider interface and
+the read-only query surface (`ai.LLMProvider`, `ai.QueryableStore`,
+both predating this session). The real gap was that `ai/`'s allowlist
+has no concept of *whose* row a filter may name — it only knows which
+columns exist — which is fine for a trusted admin and wrong for an
+untrusted end user. Built `widget/`, one function (`Ask`), whose entire
+job is `scopeToOwner`: force-overwrite any identity-bearing filter a
+parsed `QueryIntent` carries, unconditionally, before the intent ever
+reaches validation or the store.
+
+Key design call, written up in the doc rather than just implemented:
+overwrite the identity filter outright rather than validate-and-reject
+it. A reject path still has to trust the filter enough to compare it,
+and turns "did you try someone else's data" into a probeable oracle.
+Overwrite has none — every phrasing of a question, honest or
+adversarial, produces the same executed query.
+
+One small, additive change to `ai/`: exported `ai.ExecuteIntent` (the
+validate-then-execute tail `ExecuteQuery` already had internally, now
+reusable by `widget.Ask` between its own parse and scope steps).
+Refactored `ExecuteQuery` to call it; behavior pinned unchanged by a
+new parity test comparing both paths against the same intent. All 8
+pre-existing `ai` tests still pass.
+
+**This is the one item in the whole tier that got a real end-to-end
+run, not just isolated-package verification.** `widget/` depends on
+`ai/` only, and `ai/` has zero external dependencies — neither touches
+`security`/`go-webauthn`, so there was no facade-layer gap to work
+around this time. `go run ./cmd/smoketest/ask-ai-widget` actually ran
+(against a scratch copy with only `go.mod`'s version directive
+lowered, never the committed one) and printed `ALL CHECKS PASSED` for
+all 5 scenarios, including a simulated prompt-injection case where the
+fake provider is seeded with an intent naming a different user's ID —
+standing in for what a *successful* injection would get a real model
+to produce — and the test confirms that identity never reaches the
+fake store. `widget/ask_test.go` (14 tests) and the 3 new `ai`
+tests all ran green with `go test -v`, not just `go build`.
+
+Assumptions made, none blocking:
+- `widget` is standalone — no `Config`/`Engine` wiring, matching `ai`'s
+  own precedent of not being wired into the engine either. A host
+  imports `widget` directly and supplies its own `Provider`/`Store`.
+- No widget-specific allowlist narrower than `ai/`'s existing one —
+  considered, rejected: every field currently allowlisted for
+  `sessions`/`audit_events` is either forced to the owner's own rows or
+  harmless once that forcing is in place, and an entity `scopeToOwner`
+  doesn't recognize fails closed rather than passing through.
+- `Composer` is optional and defaults to a deterministic, no-second-
+  model-call rendering (`RenderResult`) rather than requiring a host to
+  wire up prose generation before the feature does anything useful.
+- Explicitly out of scope, documented rather than silently dropped:
+  output-encoding of the composed answer text (host's responsibility,
+  same as any model-generated string a host displays), and rate
+  limiting on the LLM calls (not in the spec, no visibility into a
+  host's infra to add it meaningfully).
+
+**Tier 4 is now complete — all four items (19-22) done.** Per
+`NEXT.md`/`CURRENT-STATE.md`'s own standing instruction, stopping here
+rather than proceeding into Tier 5 (organizations/multi-tenancy, SSO,
+RBAC, data export) without an explicit go-ahead from the project
+owner.
+
+**Outstanding across the whole tier, for whoever picks this up next:**
+none of the four branches have been merged or pushed, per the
+workflow's own rule ("never merge to main, never push — leave it for
+the human"). Items 19 and 22 got real `go build`/`go test`/`go run`
+verification in this environment. Items 20 and 21's facade-level files
+(`cryden.go`/`engine.go` additions, the two `*_facade_test.go` files,
+two of the four smoke tests) were reviewed by hand against real
+signatures but never compiled here, blocked by `go-webauthn`'s 1.25
+floor and this sandbox's lack of either a go1.25 toolchain or
+`proxy.golang.org` access. First thing to do on a host with real
+toolchain access, before merging anything: `go build ./... && go test
+./... -count=1`, then run all four `cmd/smoketest/*` binaries.
