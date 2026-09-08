@@ -33,10 +33,12 @@ Built on `feat/support-ticket-assistant`. `cryden.DiagnoseLoginIssue`,
 new `admin.DiagnoseLogin` in the same read-only `admin` package item 19
 started. See `CURRENT-STATE.md`.
 
-### 3. Config tuning advisor (item 21) — NEXT
-Produces a report of suggested config changes. Never applies them.
+### 3. Config tuning advisor (item 21) — DONE
+Built on `feat/config-tuning-advisor`. `cryden.ConfigTuningReport` /
+`cryden.TuningReportSince`, new `admin.BuildTuningReport` in the same
+read-only `admin` package. See `CURRENT-STATE.md`.
 
-### 4. Ask-AI widget (item 22)
+### 4. Ask-AI widget (item 22) — NEXT
 The most complex of the four. Needs its own full design pass before
 any code — at minimum: an LLM provider interface (zero shipped
 implementations, host brings their own key/provider, same pattern as

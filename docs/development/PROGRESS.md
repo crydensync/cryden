@@ -1032,3 +1032,68 @@ test ./... -count=1` and `go run ./cmd/smoketest/support-ticket-assistant`.
 
 Next in queue: item 21, the config tuning advisor — same `admin`
 package, same non-negotiable "report only, never applies anything."
+
+## 2026-09-08 — Config tuning advisor (item 21)
+
+Branch: `feat/config-tuning-advisor` (6 commits, unmerged, unpushed).
+
+Built: `cryden.ConfigTuningReport`/`TuningReportSince`, read-only
+suggested-config-changes report over 30 days of audit history. Same
+`admin` package, same non-negotiable: no config-mutation path exists in
+this feature at all.
+
+**Caught and reversed a real mistake mid-build:** first draft of
+`admin.TuningInputs` embedded `security.AnomalyThresholds` and
+`security.CredentialStuffingThresholds` directly, for convenience.
+That's a real architectural regression — it pulls `security` (and so
+`go-webauthn`, and so the go1.25 floor) into `admin`'s dependency graph,
+which item 19's own doc comment says this package deliberately avoids.
+Caught it by trying to build `admin` in isolation the same way I had
+for item 20, watching it fail against the local Go 1.22 toolchain where
+it had succeeded before, and tracing that back to the new import rather
+than assuming it was another instance of the same known toolchain gap.
+Flattened `TuningInputs` to six numbers and three booleans instead —
+`admin` still imports only `store`, confirmed by rebuilding after the
+fix.
+
+Assumptions made, none blocking:
+- Lockout heuristic requires both ≥3 lockouts and ≥10% of failed
+  logins, not just a high ratio — a 2-lockout weekend can easily be
+  50%+ on a quiet app and mean nothing.
+- Anomaly-detection "silent despite volume" only fires above 50
+  successful sign-ins in the window — below that, silence is exactly
+  what a quiet app looks like, not a finding.
+- Credential-stuffing has no "suspiciously quiet" branch — that would
+  just restate anomaly detection's own silence finding under a
+  different heading, since both share the same `Config.Anomalies`
+  on/off switch.
+- A working breach checker actively rejecting passwords is reported as
+  good news ("no change suggested"), not manufactured into a problem —
+  this is the one heuristic here that isn't implicitly "consider
+  changing something."
+- Two new private `Engine` fields (`rateLimitAttempts`,
+  `rateLimitWindow`) — the only way to report the configured numbers
+  back out, since `*security.InMemoryRateLimiter`'s own fields are
+  unexported. Purely additive; `Config.RateLimiter` still ignores both
+  when a custom limiter is set, unchanged from before.
+
+**Toolchain gap, unchanged from item 20, confirmed again on both sides
+of the mistake above:** `admin/tuning.go` and `admin/tuning_test.go`
+build and test clean standalone under the local Go 1.22 (all 14 tests
+green). `cryden.go`/`engine.go`/`tuning_facade_test.go` could not be
+compiled here — same `go-webauthn` 1.25 floor as before, unrelated to
+this item. Reviewed by hand against real field names and types; not
+run. Same first step for a host with real toolchain access: `go build
+./... && go test ./... -count=1`, then `go run
+./cmd/smoketest/config-tuning-advisor`.
+
+Next in queue: item 22, the Ask-AI widget — the highest-risk item in
+the tier. A written design pass (LLM provider interface, read-only
+query surface, prompt-injection containment) comes before any code, per
+the handoff note's own instruction. Worth noting for that design: the
+repo already has an `ai` package (`ai/types.go`, `ai/execute.go`,
+`ai/validate.go`) with exactly the allowlisted-query-intent machinery
+item 22 needs — this doesn't need to be built from scratch, item 22 is
+a widget layer on top of it, principally adding end-user identity
+scoping that's enforced in code regardless of what a model's parsed
+intent says.
