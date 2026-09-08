@@ -38,19 +38,15 @@ Built on `feat/config-tuning-advisor`. `cryden.ConfigTuningReport` /
 `cryden.TuningReportSince`, new `admin.BuildTuningReport` in the same
 read-only `admin` package. See `CURRENT-STATE.md`.
 
-### 4. Ask-AI widget (item 22) — NEXT
-The most complex of the four. Needs its own full design pass before
-any code — at minimum: an LLM provider interface (zero shipped
-implementations, host brings their own key/provider, same pattern as
-every other external-network-call integration), a defined read-only
-query surface, and an explicit answer to how untrusted end-user input
-is kept from doing anything beyond reading data (this is exposed to
-the host app's own end users, not just admins — prompt-injection
-surface is real here). Write the design into this section of
-`NEXT.md` (or a new file it points to) before writing any code, even
-though there's no human to approve it mid-session — the design still
-needs to exist and be reasoned through in writing, just do it as part
-of this same session rather than waiting for a reply.
+### 4. Ask-AI widget (item 22) — DONE
+Built on `feat/ask-ai-widget`. Design written first at
+`docs/design/ask-ai-widget.md`. New `widget` package wrapping the
+pre-existing `ai` package; one small additive export
+(`ai.ExecuteIntent`) added to `ai` itself. See `CURRENT-STATE.md`.
+
+Tier 4 is complete — all four items done. Do not proceed into Tier 5
+without an explicit go-ahead from the project owner (see below and
+`CURRENT-STATE.md`).
 
 ---
 
