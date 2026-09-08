@@ -47,6 +47,13 @@ type Engine struct {
 	lockoutThreshold int
 	lockoutDuration  time.Duration
 
+	// rateLimitAttempts/rateLimitWindow are kept alongside rateLimiter
+	// itself only so a read-only report (admin.TuningInputs) can name
+	// the configured numbers — cfg.RateLimiter, when set, ignores them
+	// entirely, exactly as Config.RateLimiter's own doc comment says.
+	rateLimitAttempts int
+	rateLimitWindow   time.Duration
+
 	anomalyThresholds  security.AnomalyThresholds
 	stuffingThresholds security.CredentialStuffingThresholds
 }
@@ -171,6 +178,9 @@ func New(cfg Config) (*Engine, error) {
 		log:              cfg.Logger,
 		lockoutThreshold: cfg.LockoutThreshold,
 		lockoutDuration:  cfg.LockoutDuration,
+
+		rateLimitAttempts: cfg.RateLimitAttempts,
+		rateLimitWindow:   cfg.RateLimitWindow,
 
 		anomalyThresholds:  cfg.AnomalyThresholds,
 		stuffingThresholds: cfg.CredentialStuffingThresholds,
