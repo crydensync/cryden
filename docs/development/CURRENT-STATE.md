@@ -623,11 +623,11 @@ existing host implementation at compile time, which is why
 it is not done here, on the item's own "don't build something
 speculative to have built something" instruction.
 
-## Tier 4 — AI-assisted admin features: IN PROGRESS (2 of 4)
+## Tier 4 — AI-assisted admin features: IN PROGRESS (3 of 4)
 
 Four items, all read-only/surface-only by explicit, non-negotiable
-requirement — no automatic action, ever. See `NEXT.md`. Items 19-20
-done; items 21-22 not started.
+requirement — no automatic action, ever. See `NEXT.md`. Items 19-21
+done; item 22 (the highest-risk one) not started.
 
 ### Item 19 — Weekly digest: DONE, branch `feat/weekly-digest`
 
@@ -770,6 +770,72 @@ signatures and are believed correct, but — unlike every other item in
 this log — were not run. Flagged here rather than claimed clean; a
 `go build ./... && go test ./...` on a host with real toolchain access
 is the one thing left to confirm.
+
+### Item 21 — Config tuning advisor: DONE, branch `feat/config-tuning-advisor`
+
+`cryden.ConfigTuningReport(ctx, e)` / `TuningReportSince(ctx, e, since)`
+read 30 days (`admin.DefaultTuningWindow`) of audit counts against the
+engine's own current settings and produce a list of suggested config
+changes, as text. Never applies any of them — there is no
+config-mutation path in this feature at all, not even a partial one.
+
+Same `admin` package as items 19-20, one deliberate difference:
+`admin.TuningInputs` is plain data (six numbers, three booleans) rather
+than `security`'s own `AnomalyThresholds`/`CredentialStuffingThresholds`
+structs — importing those would have pulled `security` (and so
+`go-webauthn`) into `admin`'s dependency graph for no reason, which
+this session caught by trying it, seeing `admin` stop building against
+the local Go 1.22 toolchain, and backing it out rather than shrugging
+it off as an environment quirk. `admin` still imports only `store`.
+
+Five heuristics, each citing exact counts rather than "many" or "often":
+**Lockout** (≥3 lockouts *and* ≥10% of failed logins, to avoid a quiet
+weekend's 2-lockout blip reading as a trend); **rate limiting** (flags
+the default in-memory limiter's single-process counters — needs no
+audit data, it's a deployment fact, not a traffic one); **anomaly
+detection** (three states: unconfigured, configured-but-silent-at-real-
+volume, configured-and-flagging-a-high-share — each framed as "may be
+real, may be tuning" rather than asserting one); **credential
+stuffing** (only speaks when a burst actually fired — no silence
+finding, since that would just restate anomaly detection's under a
+different name); **password strength** (the one area where a finding
+can be *good* news: a working breach checker actively rejecting
+passwords gets "no change suggested," not a manufactured problem).
+
+Two small `Engine` fields added (`rateLimitAttempts`, `rateLimitWindow`)
+purely so the facade can report the configured numbers — `*security.
+InMemoryRateLimiter`'s own fields are unexported and there was no
+existing way to read them back out. `Config.RateLimiter`, when set,
+still ignores these two fields entirely, unchanged from before.
+
+New files: `admin/tuning.go`, `admin/tuning_test.go`,
+`tuning_facade_test.go`, `cmd/smoketest/config-tuning-advisor/`,
+`docs/testing/config-tuning-advisor.md`. Touched: `cryden.go` (two new
+facade functions, one new import), `engine.go` (two new private
+fields).
+
+Tests: 14 in `admin/tuning_test.go` (no store beyond the digest's own
+`fakeAuditReader` — one per heuristic branch, a reader-error case, and
+a check that a tuning report never calls `SearchByType`), 4 in
+`tuning_facade_test.go` through real `Config`/`New`. Smoke test:
+`cmd/smoketest/config-tuning-advisor` (default config flags the three
+unconfigured areas, a fully-configured `Anomalies` store suppresses its
+own finding, four locked-out accounts clear the lockout heuristic's
+floor, and three back-to-back reads produce the same suggestion areas
+against unchanged history).
+
+**Toolchain note, same gap as item 20:** `admin/tuning.go` and
+`admin/tuning_test.go` build and `go test` clean under the local Go
+1.22 toolchain in isolation — confirmed twice, once before and once
+after the `security`-import mistake was caught and reverted, both times
+against a scratch copy with only `go.mod`'s version directive lowered
+(never the committed one). `cryden.go`, `engine.go`, and
+`tuning_facade_test.go` could not be compiled here for the same reason
+as item 20's facade files — `go-webauthn`'s own 1.25 floor, pulled in
+unconditionally by `security`. Reviewed by hand against the real
+`Engine`/`Config`/`security` field names and types; not run. Same next
+step: `go build ./... && go test ./... -count=1` on a host with real
+toolchain access.
 
 ## Tier 5 — do not start without an explicit go-ahead from the project owner
 
