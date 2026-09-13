@@ -35,7 +35,6 @@ func Login(
 	totpStore store.TOTPStore,
 	webauthnStore store.WebAuthnCredentialStore,
 	recoveryCodeStore store.RecoveryCodeStore,
-	anomalies store.AnomalyStore,
 	hasher security.Hasher,
 	ids security.IDGenerator,
 	refreshGen token.TokenGenerator,
@@ -50,8 +49,6 @@ func Login(
 	userAgent string,
 	lockoutThreshold int,
 	lockoutDuration time.Duration,
-	anomalyThresholds security.AnomalyThresholds,
-	stuffingThresholds security.CredentialStuffingThresholds,
 ) (Tokens, error) {
 	allowed, err := limiter.Allow(ctx, "login:"+callerIP+":"+email)
 	if err != nil {
@@ -73,7 +70,7 @@ func Login(
 		// emails by timing alone even though the returned error is
 		// identical either way.
 		_, _ = hasher.Hash(password)
-		recordLoginFailure(ctx, audit, anomalies, log, stuffingThresholds, "", callerIP, userAgent, "no_such_user")
+		recordLoginFailure(ctx, audit, log, "", callerIP, "no_such_user")
 		return Tokens{}, ErrInvalidCredentials
 	}
 
@@ -83,7 +80,7 @@ func Login(
 	}
 
 	if err := hasher.Compare(user.PasswordHash, password); err != nil {
-		recordLoginFailure(ctx, audit, anomalies, log, stuffingThresholds, user.ID, callerIP, userAgent, "wrong_password")
+		recordLoginFailure(ctx, audit, log, user.ID, callerIP, "wrong_password")
 
 		attempts, incErr := users.IncrementFailedAttempts(ctx, user.ID)
 		if incErr != nil {
@@ -115,7 +112,7 @@ func Login(
 	// every primary authentication method uses (magic-link login goes
 	// through this too) — a correct password only ever proves the
 	// primary factor, never bypasses a confirmed second one.
-	return completePrimaryAuth(ctx, sessions, totpStore, webauthnStore, recoveryCodeStore, anomalies, ids, refreshGen, jwtIssuer, pendingIssuer, audit, log, anomalyThresholds, stuffingThresholds, user, callerIP, userAgent, nil)
+	return completePrimaryAuth(ctx, sessions, totpStore, webauthnStore, recoveryCodeStore, ids, refreshGen, jwtIssuer, pendingIssuer, audit, log, user, callerIP, userAgent, nil)
 }
 
 // completePrimaryAuth is the shared tail of every primary
@@ -143,37 +140,17 @@ func completePrimaryAuth(
 	totpStore store.TOTPStore,
 	webauthnStore store.WebAuthnCredentialStore,
 	recoveryCodeStore store.RecoveryCodeStore,
-	anomalies store.AnomalyStore,
 	ids security.IDGenerator,
 	refreshGen token.TokenGenerator,
 	jwtIssuer *token.JWTIssuer,
 	pendingIssuer *token.MFAPendingIssuer,
 	audit store.AuditStore,
 	log logger.Logger,
-	anomalyThresholds security.AnomalyThresholds,
-	stuffingThresholds security.CredentialStuffingThresholds,
 	user store.User,
 	callerIP string,
 	userAgent string,
 	extraMetadata map[string]string,
 ) (Tokens, error) {
-	// Runs here, in the one shared tail every primary auth method
-	// reaches, for the same reason the second-factor gate does: a new
-	// primary auth method can't accidentally skip it. Before the
-	// second-factor branch below, so an account that pauses for TOTP is
-	// still observed — the attempt already proved the primary factor,
-	// which is what's being judged. Records and logs only; nothing it
-	// finds changes what this function returns.
-	detectLoginAnomalies(ctx, anomalies, sessions, audit, log, anomalyThresholds, user, callerIP, userAgent)
-
-	// Credential stuffing is evaluated on successes as well as failures,
-	// and this is the more important of the two: a login that SUCCEEDS
-	// from an IP currently spraying many accounts means one of the
-	// guesses landed. Ordering is not incidental — detectLoginAnomalies
-	// records this attempt as it finishes, so the burst being measured
-	// here includes it.
-	detectCredentialStuffing(ctx, anomalies, audit, log, stuffingThresholds, user.ID, callerIP)
-
 	var methods []string
 	hasRealSecondFactor := false
 	if totpStore != nil {
@@ -286,7 +263,7 @@ func finishLogin(
 	return Tokens{AccessToken: accessToken, RefreshToken: rawRefresh}, nil
 }
 
-func recordLoginFailure(ctx context.Context, audit store.AuditStore, anomalies store.AnomalyStore, log logger.Logger, stuffingThresholds security.CredentialStuffingThresholds, userID, callerIP, userAgent, reason string) {
+func recordLoginFailure(ctx context.Context, audit store.AuditStore, log logger.Logger, userID, callerIP, reason string) {
 	if err := audit.Record(ctx, store.AuditEvent{
 		Type:     store.EventLoginFailed,
 		UserID:   userID,
@@ -295,20 +272,5 @@ func recordLoginFailure(ctx context.Context, audit store.AuditStore, anomalies s
 	}); err != nil {
 		log.Error("login: audit record failed", map[string]string{"error": err.Error()})
 	}
-	// The same failure also feeds anomaly detection's velocity counts —
-	// per-user AND per-IP, which is why an unknown-email failure (empty
-	// userID) is still worth recording: it's real evidence about the IP.
-	RecordLoginAttempt(ctx, anomalies, log, store.LoginAttempt{
-		UserID:    userID,
-		IP:        callerIP,
-		UserAgent: userAgent,
-		Outcome:   store.OutcomeFailure,
-	})
-	// After the attempt above is recorded, never before: this failure is
-	// part of the burst being judged. Failures are where a spray is
-	// visible at all — an attacker working through a list of accounts
-	// they have no valid password for produces nothing but these.
-	detectCredentialStuffing(ctx, anomalies, audit, log, stuffingThresholds, userID, callerIP)
-
 	log.Warn("login: failed attempt", map[string]string{"ip": callerIP, "reason": reason})
 }

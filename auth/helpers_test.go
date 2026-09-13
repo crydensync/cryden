@@ -1,9 +1,6 @@
 package auth
 
-import (
-	"github.com/crydensync/cryden/v2/security"
-	"github.com/crydensync/cryden/v2/store"
-)
+import "github.com/crydensync/cryden/v2/store"
 
 // testLogger is a no-op Logger for tests — keeps test output clean
 // without needing to assert on log content.
