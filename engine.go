@@ -1,6 +1,7 @@
 package cryden
 
 import (
+	"context"
 	"time"
 
 	"github.com/crydensync/cryden/v2/logger"
@@ -157,4 +158,15 @@ func New(cfg Config) (*Engine, error) {
 		anomalyThresholds:  cfg.AnomalyThresholds,
 		stuffingThresholds: cfg.CredentialStuffingThresholds,
 	}, nil
+}
+
+// logFor binds ctx to the configured Logger for the duration of one
+// facade call. Everything the facade delegates to — auth/, session/,
+// token/ — takes a plain logger.Logger and has no context to pass at
+// its 91 log call sites, so the binding happens once here, at the only
+// layer holding both. A Logger that does not implement
+// logger.ContextLogger, the ConsoleJSONLogger default included, comes
+// back unchanged and never notices.
+func (e *Engine) logFor(ctx context.Context) logger.Logger {
+	return logger.ForContext(ctx, e.log)
 }
