@@ -14,3 +14,17 @@ func (testLogger) Error(msg string, fields map[string]string) {}
 func storeUser(id, email, passwordHash string) store.User {
 	return store.User{ID: id, Email: email, PasswordHash: passwordHash}
 }
+
+// noAnomalyThresholds is what every test predating anomaly detection
+// passes. Those tests all run with a nil store.AnomalyStore, which
+// short-circuits detection before any threshold is consulted, so the
+// zero value here is never actually read — it exists so those call
+// sites say "detection off" instead of carrying a distracting
+// security.AnomalyThresholds{} literal apiece.
+var noAnomalyThresholds = security.AnomalyThresholds{}
+
+// noStuffingThresholds is the same idea for credential-stuffing
+// detection: a zero TargetAccounts is that feature's own off switch, so
+// these call sites read as "stuffing detection off" regardless of
+// whether an AnomalyStore happens to be wired in.
+var noStuffingThresholds = security.CredentialStuffingThresholds{}
