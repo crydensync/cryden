@@ -11,6 +11,7 @@ import (
 
 	"github.com/crydensync/cryden/v2/admin"
 	"github.com/crydensync/cryden/v2/auth"
+	"github.com/crydensync/cryden/v2/security"
 	"github.com/crydensync/cryden/v2/session"
 	"github.com/crydensync/cryden/v2/store"
 	"github.com/crydensync/cryden/v2/token"
@@ -596,4 +597,43 @@ func DiagnoseLoginIssue(ctx context.Context, e *Engine, email string) (string, e
 		return "", err
 	}
 	return diagnosis.Text(), nil
+}
+
+// ConfigTuningReport summarises the last 30 days of audit history
+// against this engine's own tuning settings — lockout, rate limiting,
+// anomaly/credential-stuffing detection, breached-password checking —
+// and suggests changes worth considering. It never applies any of
+// them: there is no config-write path anywhere in this call, the same
+// non-negotiable rule WeeklyDigest and DiagnoseLoginIssue both follow.
+// A human reads the suggestions and decides what, if anything, to
+// change in their own Config.
+func ConfigTuningReport(ctx context.Context, e *Engine) (string, error) {
+	return TuningReportSince(ctx, e, time.Now().Add(-admin.DefaultTuningWindow))
+}
+
+// TuningReportSince is ConfigTuningReport over a window you choose,
+// same relationship DigestSince has to WeeklyDigest: the window always
+// ends now, and a since in the future is an empty window, not an error.
+func TuningReportSince(ctx context.Context, e *Engine, since time.Time) (string, error) {
+	_, usingDefaultLimiter := e.rateLimiter.(*security.InMemoryRateLimiter)
+	in := admin.TuningInputs{
+		LockoutThreshold:              e.lockoutThreshold,
+		LockoutDuration:               e.lockoutDuration,
+		RateLimitAttempts:             e.rateLimitAttempts,
+		RateLimitWindow:               e.rateLimitWindow,
+		UsingDefaultRateLimiter:       usingDefaultLimiter,
+		AnomaliesEnabled:              e.anomalies != nil,
+		UserFailureVelocity:           e.anomalyThresholds.UserFailureVelocity,
+		IPFailureVelocity:             e.anomalyThresholds.IPFailureVelocity,
+		HistorySize:                   e.anomalyThresholds.HistorySize,
+		StuffingTargetAccounts:        e.stuffingThresholds.TargetAccounts,
+		StuffingWindow:                e.stuffingThresholds.Window,
+		StuffingCooldown:              e.stuffingThresholds.Cooldown,
+		BreachedPasswordCheckerActive: e.breachChecker != nil,
+	}
+	report, err := admin.BuildTuningReport(ctx, e.audit, in, since)
+	if err != nil {
+		return "", err
+	}
+	return report.Text(), nil
 }
