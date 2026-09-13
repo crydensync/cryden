@@ -103,6 +103,16 @@ func New(cfg Config) (*Engine, error) {
 		}
 	}
 
+	// A host-supplied limiter wins outright; the in-process default is
+	// built from the two tuning knobs only when none was given. Which
+	// one is in play is not a detail the rest of the engine can see —
+	// every call site holds the security.RateLimiter interface, so
+	// swapping the counter's home never reaches auth/.
+	rateLimiter := cfg.RateLimiter
+	if rateLimiter == nil {
+		rateLimiter = security.NewInMemoryRateLimiter(cfg.RateLimitAttempts, cfg.RateLimitWindow)
+	}
+
 	return &Engine{
 		users:            cfg.Users,
 		sessions:         cfg.Sessions,
@@ -120,7 +130,7 @@ func New(cfg Config) (*Engine, error) {
 		anomalies:        cfg.Anomalies,
 		hasher:           hasher,
 		ids:              security.NewUUIDv7Generator(),
-		rateLimiter:      security.NewInMemoryRateLimiter(cfg.RateLimitAttempts, cfg.RateLimitWindow),
+		rateLimiter:      rateLimiter,
 		refreshGen:       refreshGen,
 		jwtIssuer:        jwtIssuer,
 		pendingIssuer:    pendingIssuer,
