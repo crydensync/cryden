@@ -77,12 +77,19 @@ func TestMigrate_IsIdempotent(t *testing.T) {
 		t.Fatalf("third Migrate: %v", err)
 	}
 
+	// Counted from the embedded files rather than hardcoded, so adding a
+	// migration does not fail this test for the wrong reason.
+	names, err := upMigrationNames()
+	if err != nil {
+		t.Fatalf("listing migrations: %v", err)
+	}
+
 	var applied int
 	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+migrationTable).Scan(&applied); err != nil {
 		t.Fatalf("counting applied migrations: %v", err)
 	}
-	if applied != 1 {
-		t.Errorf("expected 1 recorded migration after three calls, got %d", applied)
+	if applied != len(names) {
+		t.Errorf("expected %d recorded migrations after three calls, got %d", len(names), applied)
 	}
 }
 
@@ -93,7 +100,7 @@ func TestMigrate_CreatesEveryTableAndPartialIndex(t *testing.T) {
 	for _, table := range []string{
 		"users", "sessions", "audit_events", "verification_tokens",
 		"oauth_identities", "totp_secrets", "webauthn_credentials",
-		"recovery_codes", "login_attempts",
+		"recovery_codes", "login_attempts", "api_keys",
 	} {
 		var name string
 		err := db.QueryRowContext(ctx,

@@ -363,3 +363,85 @@ func TestSignUp_StillLogsToAContextFreeLogger(t *testing.T) {
 		t.Error("a context-free Logger recorded nothing during a successful signup")
 	}
 }
+
+// Every API key function fails the same recognisable way when the
+// engine was built without the store, rather than panicking on a nil
+// interface — the same convention as recovery codes and WebAuthn.
+func TestAPIKeyFunctions_RequireTheStore(t *testing.T) {
+	e, err := New(validConfig())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	ctx := context.Background()
+
+	if _, _, err := GenerateAPIKey(ctx, e, "user-1", "ci", nil, 0); err != ErrAPIKeysNotConfigured {
+		t.Errorf("GenerateAPIKey: expected ErrAPIKeysNotConfigured, got %v", err)
+	}
+	if _, err := AuthenticateAPIKey(ctx, e, "ck_whatever"); err != ErrAPIKeysNotConfigured {
+		t.Errorf("AuthenticateAPIKey: expected ErrAPIKeysNotConfigured, got %v", err)
+	}
+	if _, err := ListAPIKeys(ctx, e, "user-1"); err != ErrAPIKeysNotConfigured {
+		t.Errorf("ListAPIKeys: expected ErrAPIKeysNotConfigured, got %v", err)
+	}
+	if err := RevokeAPIKey(ctx, e, "user-1", "key-1"); err != ErrAPIKeysNotConfigured {
+		t.Errorf("RevokeAPIKey: expected ErrAPIKeysNotConfigured, got %v", err)
+	}
+}
+
+// The end-to-end shape a host actually writes: create a key, use it to
+// authenticate a machine request, revoke it, watch it stop.
+func TestAPIKeys_EndToEndThroughTheFacade(t *testing.T) {
+	cfg := validConfig()
+	cfg.APIKeys = memory.NewAPIKeyStore()
+	e, err := New(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	ctx := context.Background()
+
+	user, err := SignUp(ctx, e, "raymondproguy@dev.com", "Tr0ubl3-Fr33!2026", "1.2.3.4")
+	if err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+
+	raw, key, err := GenerateAPIKey(ctx, e, user.ID, "ci deploy", []string{"deploy:write"}, 0)
+	if err != nil {
+		t.Fatalf("GenerateAPIKey: %v", err)
+	}
+	if key.Expired() {
+		t.Error("a key with no expiry reports itself expired")
+	}
+
+	identity, err := AuthenticateAPIKey(ctx, e, raw)
+	if err != nil {
+		t.Fatalf("AuthenticateAPIKey: %v", err)
+	}
+	if identity.UserID != user.ID || !identity.HasScope("deploy:write") {
+		t.Errorf("identity = %+v, want user %q with deploy:write", identity, user.ID)
+	}
+
+	listed, err := ListAPIKeys(ctx, e, user.ID)
+	if err != nil {
+		t.Fatalf("ListAPIKeys: %v", err)
+	}
+	if len(listed) != 1 || listed[0].ID != key.ID || listed[0].Prefix != key.Prefix {
+		t.Fatalf("listed %+v, want the one key just created", listed)
+	}
+	if listed[0].LastUsedAt == nil {
+		t.Error("the listed key does not show its use")
+	}
+
+	if err := RevokeAPIKey(ctx, e, user.ID, key.ID); err != nil {
+		t.Fatalf("RevokeAPIKey: %v", err)
+	}
+	if _, err := AuthenticateAPIKey(ctx, e, raw); !errors.Is(err, auth.ErrInvalidAPIKey) {
+		t.Errorf("revoked key still authenticates: %v", err)
+	}
+	after, err := ListAPIKeys(ctx, e, user.ID)
+	if err != nil {
+		t.Fatalf("ListAPIKeys after revoke: %v", err)
+	}
+	if len(after) != 0 {
+		t.Errorf("expected no live keys after revoking, got %+v", after)
+	}
+}

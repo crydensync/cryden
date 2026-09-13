@@ -214,9 +214,9 @@ re-derive it**:
   `CountTargetsForIP`, added by item 9 above against the same table.
 
 
-## Tier 3 — Infrastructure & Extensibility: IN PROGRESS (4 of 7)
+## Tier 3 — Infrastructure & Extensibility: IN PROGRESS (5 of 7)
 
-Three items left. See `NEXT.md`.
+Two items left. See `NEXT.md`.
 
 ### Item 12 — Argon2id hasher: DONE, branch `feat/argon2id-hasher`
 
@@ -451,6 +451,80 @@ engine's own secret). Manual guide: `docs/testing/jwt-claims.md`.
 `gofmt -l`, `go build ./...`, `go vet ./...` and `go test ./...` all clean
 here.
 
+### Item 16 — API keys / machine-to-machine auth: DONE, branch `feat/api-keys`
+
+A credential for a caller with no human behind it. `Config.APIKeys`
+takes a `store.APIKeyStore`; `cryden.GenerateAPIKey` mints
+`ck_<64 hex>` and returns the raw string exactly once;
+`cryden.AuthenticateAPIKey` resolves a presented key to an
+`APIKeyIdentity` (user, key ID, name, scopes); `ListAPIKeys` and
+`RevokeAPIKey` are the management half.
+
+The spec's assumption checked out — nothing M2M existed anywhere in the
+tree — and this deliberately sits **outside the second-factor system**:
+no `Login`, no `*ErrSecondFactorRequired`, nothing that would prompt a
+pipeline for a code it cannot produce.
+
+`ListAPIKeys` is beyond the spec's three functions, and had to be.
+`RevokeAPIKey` takes a key ID, so without a way to obtain one after
+creation the three do not compose into a usable feature.
+
+**Storage.** `store.APIKeyStore` is `Create`, `GetByKeyHash`,
+`ListByUser`, `Revoke`, `TouchLastUsed`, implemented in all three
+backends. `key_hash` is SHA-256 via `token.HashToken` and uniquely
+indexed — the hot read is one index hit — with a partial index on
+`(user_id) WHERE revoked_at IS NULL` for the listing. bcrypt was
+explicitly not used: 32 bytes of `crypto/rand` has no dictionary to
+slow anyone down through, and the cost would be paid on every machine
+request rather than once per login. Migrations `0007_api_keys`
+(Postgres) and `0002_api_keys` (SQLite, the second one that package has
+ever had — `TestMigrate_IsIdempotent` counted migrations by hardcoding
+1 and now derives it). Postgres cascades on user deletion; SQLite's
+hand-written cascade in `UserStore.Delete` gained the row.
+
+**Deliberate refusals.** Password lockout does not reach keys — anyone
+who knows a developer's email could otherwise take down that account's
+production integrations by failing to log in five times. There is no
+rate limiting on the authenticate path: limiting by key needs the key
+hashed and looked up first, at which point the work is done, and
+limiting by IP would throttle the CI runner this exists for. Scopes are
+opaque host strings; `HasScope` is exact equality with no hierarchy and
+no wildcards, and the engine never interprets them.
+
+**The audit log records three things and skips two.**
+`api_key_created`, `api_key_revoked` and `api_key_rejected` (with
+`reason` = `revoked` or `expired`) are recorded. A *successful*
+authentication is not — it happens on every request. An *unrecognised*
+key is not either: that is unauthenticated internet traffic, and
+auditing it hands anyone with a wordlist a write endpoint into the
+audit table. A key that exists but is refused is the case only a
+former holder of a real credential can trigger, which is why it is the
+one that lands.
+
+Every failure on the read path is one error, `auth.ErrInvalidAPIKey` —
+unknown, revoked, expired, empty, malformed — so a caller holding
+stolen keys cannot sort them into live and dead. `RevokeAPIKey` is the
+same silence via `auth.ErrAPIKeyNotFound` for nonexistent,
+already-revoked and somebody else's.
+
+New files: `auth/apikeys.go`, `auth/apikeys_test.go`, the three
+`api_key_store.go` implementations, `store/sqlite/api_key_store_test.go`,
+four migration files, `cmd/smoketest/api-keys/`, `docs/testing/api-keys.md`.
+Touched: `store/interfaces.go`, `config.go`, `errors.go`, `engine.go`,
+`cryden.go`, plus SQLite's `sqlite.go`/`user_store.go` and three test
+files. No new dependency. `Config.APIKeyPrefix` defaults to `"ck"` and
+is validated at `New` — no whitespace, no underscore, since the
+underscore is the separator.
+
+Tests: 13 in `auth/apikeys_test.go`, 7 in
+`store/sqlite/api_key_store_test.go`, 5 across `config_test.go` and
+`new_facade_test.go` including a full facade end-to-end. Smoke test:
+`cmd/smoketest/api-keys` (96 checks over ten sections, including nine
+malformed keys, a locked-out account whose key keeps working, and five
+successes plus five unknown keys recording nothing). Manual guide:
+`docs/testing/api-keys.md`. `gofmt -l`, `go build ./...`, `go vet ./...`
+and `go test ./...` all clean here.
+
 ## Tier 4 — AI-assisted admin features: NOT STARTED
 
 Four items, all read-only/surface-only by explicit, non-negotiable
@@ -521,6 +595,16 @@ project brief.
   same by-hand adjacency as items 10-12 and 14 applies if it is lifted
   onto `main` alone. It adds **no dependency** — `golang-jwt/jwt/v5` was
   already there — and needs no external service. Unmerged and unpushed.
+- `feat/api-keys` — item 16, complete, 8 commits, branched from
+  `feat/jwt-claims` at `8bb452b`, the tip of the chain, so this branch
+  carries items 8 through 16. Touches engine files (`config.go`,
+  `errors.go`, `engine.go`, `cryden.go`) and `store/interfaces.go` as
+  well as all three store backends, so the same by-hand adjacency as
+  items 10-12, 14 and 15 applies if it is lifted onto `main` alone. It
+  adds **no dependency** and needs no external service, but it does add
+  **two migrations** that have to run before the feature works:
+  `store/postgres/migrations/0007_api_keys.up.sql` and
+  `store/sqlite/migrations/0002_api_keys.up.sql`. Unmerged and unpushed.
 - `fix/committed-smoketest-binary` — not a queue item. A pre-existing
   bug found while working on item 14: a 9.8 MB compiled `argon2id-hasher`
   binary was committed to the repo by item 12's session (`57a5dbd`) and
