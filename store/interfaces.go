@@ -131,6 +131,15 @@ const (
 	EventRecoveryCodeUsed        AuditEventType = "recovery_code_used"
 	EventRecoveryCodeFailed      AuditEventType = "recovery_code_failed"
 	EventPasswordBreachRejected  AuditEventType = "password_breach_rejected"
+
+	// EventAnomalyDetected records that a login attempt tripped one or
+	// more anomaly signals (see security.AnomalySignal). Metadata
+	// carries a "signals" key listing which ones fired, plus the counts
+	// behind them. Recorded on an otherwise SUCCESSFUL primary
+	// authentication — it annotates a login that was allowed to
+	// proceed, it is never a rejection, and there is deliberately no
+	// matching sentinel error for callers to branch on.
+	EventAnomalyDetected AuditEventType = "anomaly_detected"
 )
 
 // AuditEvent is a single security-relevant, queryable record.
@@ -322,4 +331,72 @@ type RecoveryCodeStore interface {
 	// stand in as a login gate on their own. DeleteAll exists for
 	// hygiene, if a host app wants to clean up explicitly.
 	DeleteAll(ctx context.Context, userID string) error
+}
+
+// LoginAttemptOutcome records whether one observed primary
+// authentication attempt succeeded. Only these two values exist — an
+// attempt that never got as far as checking a credential (rate limited,
+// account already locked) is not an observation about the credential
+// and is deliberately not recorded here.
+type LoginAttemptOutcome string
+
+const (
+	OutcomeSuccess LoginAttemptOutcome = "success"
+	OutcomeFailure LoginAttemptOutcome = "failure"
+)
+
+// LoginAttempt is one observed primary-authentication attempt, stored
+// so anomaly detection can answer questions about a user's normal
+// behavior cheaply. It overlaps in spirit with AuditEvent — both are
+// append-only security history — but not in shape or access pattern:
+// audit history is read as a chronological list for a human, while
+// these rows are only ever read as aggregates over a time window and
+// indexed for exactly that (see AnomalyStore). Deriving the same
+// answers from AuditStore would mean scanning and filtering audit
+// history on every single login.
+//
+// UserID is empty when the attempt named an email that resolves to no
+// account — an unknown-email failure is still real evidence about the
+// IP, which is the whole point of tracking it.
+type LoginAttempt struct {
+	ID        string
+	UserID    string
+	IP        string
+	UserAgent string
+	Outcome   LoginAttemptOutcome
+	CreatedAt time.Time
+}
+
+// AnomalyStore defines persistence for login-attempt observations. It
+// exists as its own store rather than as more AuditStore queries so
+// each read below can be a single indexed lookup, and rather than as
+// part of the in-memory rate limiter because that one is explicitly
+// documented as incorrect across multiple instances — a detector whose
+// history resets on deploy, or differs per process, would flag normal
+// behavior and miss real attacks.
+//
+// Every method is read-mostly and best-effort by contract: a caller
+// that fails to record or read an observation logs it and continues.
+// Detection is an annotation on a login, never a gate, so a broken
+// AnomalyStore must never be able to stop a legitimate user logging in.
+type AnomalyStore interface {
+	// RecordAttempt appends one observation. Implementations assign
+	// CreatedAt (and ID) themselves — the caller does not supply a
+	// clock, matching AuditStore.Record.
+	RecordAttempt(ctx context.Context, attempt LoginAttempt) error
+
+	// ListRecentSuccesses returns up to limit of the user's most recent
+	// SUCCESSFUL attempts, newest first — the known-IP/known-device
+	// baseline. Successes only: a failed attempt must never be able to
+	// teach the baseline that an IP is familiar.
+	ListRecentSuccesses(ctx context.Context, userID string, limit int) ([]LoginAttempt, error)
+
+	// CountFailuresForUser counts this user's failed attempts at or
+	// after since.
+	CountFailuresForUser(ctx context.Context, userID string, since time.Time) (int, error)
+
+	// CountFailuresForIP counts failed attempts from this IP at or
+	// after since, across every account it targeted — including
+	// attempts against emails that match no account.
+	CountFailuresForIP(ctx context.Context, ip string, since time.Time) (int, error)
 }
