@@ -147,3 +147,55 @@ func TestNew_AcceptsAnAnomalyStore(t *testing.T) {
 		t.Error("expected Config.Anomalies to reach the engine")
 	}
 }
+
+func TestNew_AppliesDefaultCredentialStuffingThresholdsWhenFullyUnset(t *testing.T) {
+	cfg := validConfig()
+	e, err := New(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if e.stuffingThresholds != security.DefaultCredentialStuffingThresholds {
+		t.Errorf("expected DefaultCredentialStuffingThresholds when Config.CredentialStuffingThresholds is unset, got %+v", e.stuffingThresholds)
+	}
+}
+
+func TestNew_LeavesPartialCustomCredentialStuffingThresholdsIntact(t *testing.T) {
+	cfg := validConfig()
+	cfg.CredentialStuffingThresholds = security.CredentialStuffingThresholds{TargetAccounts: 50}
+	e, err := New(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if e.stuffingThresholds.TargetAccounts != 50 {
+		t.Errorf("expected TargetAccounts 50 to survive applyDefaults, got %d", e.stuffingThresholds.TargetAccounts)
+	}
+	if e.stuffingThresholds.Cooldown != 0 {
+		t.Errorf("expected the untouched fields to stay zero, got %v", e.stuffingThresholds.Cooldown)
+	}
+}
+
+// The two threshold structs default independently, which is the whole
+// reason they are two structs: tuning anomaly detection must not zero —
+// and so silently disable — credential-stuffing detection, or the other
+// way round.
+func TestNew_TheTwoDetectionThresholdsDefaultIndependently(t *testing.T) {
+	cfg := validConfig()
+	cfg.AnomalyThresholds = security.AnomalyThresholds{UserFailureVelocity: 3}
+	e, err := New(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if e.stuffingThresholds != security.DefaultCredentialStuffingThresholds {
+		t.Errorf("a custom AnomalyThresholds must leave stuffing defaults alone, got %+v", e.stuffingThresholds)
+	}
+
+	cfg = validConfig()
+	cfg.CredentialStuffingThresholds = security.CredentialStuffingThresholds{TargetAccounts: 50}
+	e, err = New(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if e.anomalyThresholds != security.DefaultAnomalyThresholds {
+		t.Errorf("a custom CredentialStuffingThresholds must leave anomaly defaults alone, got %+v", e.anomalyThresholds)
+	}
+}

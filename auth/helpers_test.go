@@ -25,3 +25,9 @@ func storeUser(id, email, passwordHash string) store.User {
 // sites say "detection off" instead of carrying a distracting
 // security.AnomalyThresholds{} literal apiece.
 var noAnomalyThresholds = security.AnomalyThresholds{}
+
+// noStuffingThresholds is the same idea for credential-stuffing
+// detection: a zero TargetAccounts is that feature's own off switch, so
+// these call sites read as "stuffing detection off" regardless of
+// whether an AnomalyStore happens to be wired in.
+var noStuffingThresholds = security.CredentialStuffingThresholds{}
