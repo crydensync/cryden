@@ -26,7 +26,6 @@ type Engine struct {
 	recoveryCodes   store.RecoveryCodeStore
 	breachChecker   security.BreachedPasswordChecker
 	passwordPolicy  security.PasswordPolicy
-	anomalies       store.AnomalyStore
 
 	hasher           security.Hasher
 	ids              security.IDGenerator
@@ -42,9 +41,6 @@ type Engine struct {
 	log              logger.Logger
 	lockoutThreshold int
 	lockoutDuration  time.Duration
-
-	anomalyThresholds  security.AnomalyThresholds
-	stuffingThresholds security.CredentialStuffingThresholds
 }
 
 // New validates cfg, applies defaults for unset tuning knobs, and
@@ -115,7 +111,6 @@ func New(cfg Config) (*Engine, error) {
 		recoveryCodes:    cfg.RecoveryCodes,
 		breachChecker:    cfg.BreachedPasswordChecker,
 		passwordPolicy:   cfg.PasswordPolicy,
-		anomalies:        cfg.Anomalies,
 		hasher:           hasher,
 		ids:              security.NewUUIDv7Generator(),
 		rateLimiter:      security.NewInMemoryRateLimiter(cfg.RateLimitAttempts, cfg.RateLimitWindow),
@@ -130,8 +125,5 @@ func New(cfg Config) (*Engine, error) {
 		log:              cfg.Logger,
 		lockoutThreshold: cfg.LockoutThreshold,
 		lockoutDuration:  cfg.LockoutDuration,
-
-		anomalyThresholds:  cfg.AnomalyThresholds,
-		stuffingThresholds: cfg.CredentialStuffingThresholds,
 	}, nil
 }
