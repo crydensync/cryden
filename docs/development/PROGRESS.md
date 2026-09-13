@@ -408,4 +408,109 @@ Verification: `gofmt -l .` clean, `go build ./...`, `go vet ./...` and
 sections. Unlike item 11 there is no external service to reach, so
 nothing here is left unverified.
 
-Next in queue: item 13, an additional storage backend beyond Postgres.
+## 2026-09-05 — SQLite storage backend (item 13)
+
+Branch: `feat/sqlite-store`, off `feat/argon2id-hasher` at `ca80f05`
+(so it carries items 8–13). 9 commits.
+
+Implemented all nine `store.X` interfaces plus `ai.QueryableStore`
+against SQLite in a new `store/sqlite` package: ten tables in one
+migration, ten store types, eleven test files (53 funcs), a 160-check
+smoke test and a manual guide. Nothing outside the new directory
+changed — no interface, no `store/postgres` file, no shared helper.
+
+Assumptions and decisions made without asking:
+
+- **SQLite, confirmed rather than assumed.** `NEXT.md` said "most likely
+  candidate"; the deciding argument is that it is the only backend that
+  changes *deployment shape* rather than vendor — a single file, no
+  server — which is what a second backend is for. It also stresses the
+  interfaces hardest, having no UUID function, no `RETURNING` on old
+  versions, and foreign keys off by default.
+- **The package imports no driver at all.** A host picks mattn, modernc
+  or ncruces and registers it; `modernc.org/sqlite` is in `go.mod` for
+  tests and the smoke test only, chosen because it is pure Go so
+  `go test ./...` still works at `CGO_ENABLED=0`. Cost: forgetting the
+  blank import is a runtime `unknown driver` rather than a compile error.
+  Worth it — Postgres users load none of it, and the pragma DSN syntax is
+  per-driver anyway, so bundling one would have implied a portability
+  the DSN cannot deliver.
+- **Timestamps are fixed-width TEXT, format
+  `2006-01-02T15:04:05.000000000Z07:00`, always UTC, exactly 30 chars.**
+  Fixed width is the entire point: it makes lexicographic order equal
+  chronological order, which is what makes every `ORDER BY created_at
+  DESC` and every `created_at >= ?` window correct as a string compare.
+  `time.RFC3339Nano` is unusable for *writing* — it trims trailing zeros,
+  producing values of varying width that sort wrongly against each other.
+  Columns are declared `TEXT` and never `DATETIME`, because
+  `mattn/go-sqlite3` converts declared date/time columns into `time.Time`
+  and would break every scan in the package. Asserted via
+  `pragma_table_info` in the smoke test so a future schema edit can't
+  quietly reintroduce it.
+- **`UserStore.Delete` cascades by hand, in a transaction.** SQLite
+  defaults `foreign_keys` to *off*, so `ON DELETE CASCADE` is a comment
+  unless the host's DSN says otherwise — and the failure is silent: a
+  deleted account whose session rows survive means refresh tokens that
+  keep rotating for a user who no longer exists. Correctness must not
+  depend on how someone spelled a DSN. The DDL keeps its constraints
+  anyway, for hosts that do set the pragma and for `sqlite3` sessions.
+  `audit_events` and `login_attempts` get their `user_id` NULLed instead
+  of being deleted, matching their `ON DELETE SET NULL` — the security
+  record outlives the account.
+- **`CheckPragmas` rather than setting pragmas ourselves.** Pragmas are
+  per-connection and `*sql.DB` is a pool that opens connections whenever
+  it likes, so a pragma we set on one connection says nothing about the
+  next; only the DSN reaches all of them, and the store doesn't own the
+  DSN. So it reports instead — both problems in one error, so one startup
+  log is enough. `journal_mode` deliberately not checked: rollback
+  journal is slower under concurrency, not wrong, and a host on a network
+  mount can't comply.
+- **The Postgres-isms, each with a real solution rather than a syntax
+  swap.** `RETURNING` avoided entirely (needs 3.35, Mar 2021; Debian
+  bullseye still ships 3.34.1) — `UPDATE` then `SELECT` inside one
+  transaction, which is also what makes the returned number the one this
+  call produced. `COUNT(*) FILTER` (3.30) became `COUNT(CASE WHEN … THEN
+  1 END)`, and COUNT not SUM: over zero rows COUNT is 0 while SUM is NULL
+  and won't scan into an `int`. `gen_random_uuid()` became `uuid.NewV7()`
+  in Go, time-ordered to suit the created-at indexes. `JSONB` became TEXT
+  holding JSON, passed as a `string` and not `[]byte` so SQLite's `json_*`
+  functions can read it. `BYTEA` became BLOB. `ILIKE` became `LIKE`,
+  already ASCII-case-insensitive. Upsert (`ON CONFLICT … DO UPDATE`) is
+  the one that needed nothing — SQLite has had it since 3.24.
+- **Store-assigned vs caller-supplied timestamps follow Postgres exactly.**
+  Where Postgres has `DEFAULT now()` the store assigns and ignores the
+  struct field; where Postgres binds a caller value (`ExpiresAt`,
+  `LockAccount(until)`) the caller's value is honoured. Honouring a
+  caller's `CreatedAt` would have made tests easier and the two backends
+  divergent.
+- **`mode=ro` on a second handle for `SafeQueryStore`, not `PRAGMA
+  query_only`.** Same pooling argument as above: a pragma on one
+  connection says nothing about the next, while a read-only *handle*
+  binds every connection the pool ever makes. That handle is the actual
+  boundary — a bug in `ai.validateIntent` or in the query builder still
+  cannot write — and the allowlist re-check inside `RunSafeQuery` is
+  defense-in-depth on top, not a substitute. The tests prove it by
+  opening `mode=ro` and watching `DELETE`, `UPDATE` and `DROP TABLE` all
+  fail.
+- **One migration file, not the six Postgres has.** There is no deployed
+  SQLite database to migrate incrementally from, so a transcribed history
+  would have been fiction. `Migrate` still records what it applied, so
+  future changes add numbered files normally.
+- **Tests use files under `t.TempDir()`, not `:memory:`.** A bare
+  in-memory database belongs to one connection, so a pool's second
+  connection sees an empty schema — it fails as `no such table`,
+  intermittently, under load. Files are what a host actually runs and are
+  the only way WAL, `busy_timeout` and `mode=ro` mean anything. The smoke
+  test's last section makes the trap deterministic by holding a
+  connection out of the pool so the next query is forced onto a fresh
+  one, then shows `cache=shared` fixing it.
+
+Verification: `gofmt -l .` clean, `go build ./...`, `go vet ./...` and
+`go test ./...` all clean (`store/sqlite` 53 funcs, 3.8s), and `go run
+./cmd/smoketest/sqlite-store` passes all 160 checks over nine sections.
+Two things caught on the way: the facade documents but does not alias
+`*auth.ErrSecondFactorRequired`, and `Config` requires `EncryptionKey`
+whenever `TOTP` is set — both smoke-test wiring fixes, no engine change.
+No external service was needed, unlike item 11.
+
+Next in queue: item 14, cloud logger integrations.

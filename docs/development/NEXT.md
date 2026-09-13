@@ -14,18 +14,7 @@ patterns and note the assumption in `PROGRESS.md` — don't block on it.
 
 ## Tier 3 — Infrastructure & Extensibility
 
-### 1. Additional storage backend beyond Postgres (item 13)
-
-Every `store.X` interface already exists — implement all of them
-against a second backend (SQLite is the most likely candidate per
-earlier project notes, but check `CURRENT-STATE.md`/`PROGRESS.md` for
-anything more specific by the time you get here). Watch for Postgres-
-specific assumptions baked into existing interface docs/behavior
-(`JSONB` columns, `ON CONFLICT ... DO UPDATE`, `RETURNING`) — several
-`store/postgres/` implementations lean on these and a different
-backend will need different real solutions, not just syntax swaps.
-
-### 2. Cloud logger integrations (item 14)
+### 1. Cloud logger integrations (item 14)
 
 `logger.Logger` already exists with one implementation (console JSON).
 Decide interface-only-vs-shipped-implementation the same way as
@@ -38,7 +27,7 @@ console-JSON-to-stdout is already the universal integration point
 there's a specific strong reason a direct integration adds real value
 over "the host app already captures stdout."
 
-### 3. Extensible JWT claims (item 15)
+### 2. Extensible JWT claims (item 15)
 
 Let host apps attach their own data to access tokens. Read
 `token/jwt.go`'s current claims struct and `JWTIssuer.Issue` before
@@ -49,7 +38,7 @@ signing-method check). Likely shape: `Issue` gains an optional
 `ClaimsProvider` hook — pick whichever fits the existing `Issue`
 call sites with the least disruption.
 
-### 4. API keys / machine-to-machine auth (item 16)
+### 3. API keys / machine-to-machine auth (item 16)
 
 New concept, not a variant of an existing one — no human to prompt, so
 this sits outside the second-factor system entirely (confirm this
@@ -61,7 +50,7 @@ values, not human passwords), and its own facade functions
 (`GenerateAPIKey`, `RevokeAPIKey`, and something that validates a
 presented key and returns which user/scope it belongs to).
 
-### 5. Webhooks (item 17)
+### 4. Webhooks (item 17)
 
 Notify the host app on key events. Same question as everything else
 that reaches outward: interface-only, zero shipped implementations
@@ -73,7 +62,7 @@ subset, not all of them) and wire it in wherever `audit.Record` is
 already called for those events — don't build a second parallel event
 bus.
 
-### 6. Custom email templates (item 18)
+### 5. Custom email templates (item 18)
 
 Check `notify.EmailSender`/`notify.MagicLinkSender` as they exist
 today first — there's a real chance this needs **no engine change at
@@ -91,19 +80,19 @@ than building something speculative to have built something.
 automatic action — no auto-lock, no auto-config-change, nothing. Every
 one of these produces information for a human to act on.
 
-### 7. Weekly digest (item 19)
+### 6. Weekly digest (item 19)
 Reads `AuditStore`, summarizes in plain English, returns text. Nothing
 else.
 
-### 8. Support-ticket assistant (item 20)
+### 7. Support-ticket assistant (item 20)
 Read-only diagnosis ("why can't user X log in") — queries
 `AuditStore`/`UserStore`/session state, produces an explanation, never
 touches anything.
 
-### 9. Config tuning advisor (item 21)
+### 8. Config tuning advisor (item 21)
 Produces a report of suggested config changes. Never applies them.
 
-### 10. Ask-AI widget (item 22)
+### 9. Ask-AI widget (item 22)
 The most complex of the four. Needs its own full design pass before
 any code — at minimum: an LLM provider interface (zero shipped
 implementations, host brings their own key/provider, same pattern as

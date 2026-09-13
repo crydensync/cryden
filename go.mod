@@ -11,19 +11,27 @@ require (
 	github.com/pquerna/otp v1.5.0
 	github.com/redis/go-redis/v9 v9.22.0
 	golang.org/x/crypto v0.55.0
+	modernc.org/sqlite v1.58.0
 )
 
 require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.3 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/go-webauthn/x v0.3.0 // indirect
 	github.com/google/go-tpm v0.9.8 // indirect
+	github.com/mattn/go-isatty v0.0.24 // indirect
+	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect
+	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/tinylib/msgp v1.6.4 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
+	modernc.org/libc v1.75.6 // indirect
+	modernc.org/mathutil v1.7.1 // indirect
+	modernc.org/memory v1.12.1 // indirect
 )
 
 // github.com/pquerna/otp pulls in boombuler/barcode transitively (used
@@ -45,3 +53,13 @@ require github.com/boombuler/barcode v1.0.1-0.20190219062509-6c824513bacc // ind
 // against a real, cryptographically valid simulated authenticator
 // response, rather than only testing the error paths a fake response
 // would otherwise be limited to.
+
+// modernc.org/sqlite is the SQLite driver, and like virtualwebauthn
+// above it is imported only from _test.go files and
+// cmd/smoketest/sqlite-store. store/sqlite deliberately imports no
+// driver at all (see its package doc): a host picks its own — mattn,
+// modernc, ncruces — and the engine never forces a choice on anyone,
+// least of all on Postgres users who will never load any of it.
+//
+// The pure-Go one is what the tests use so that `go test ./...` keeps
+// working with CGO_ENABLED=0, which cgo-based mattn would break.
