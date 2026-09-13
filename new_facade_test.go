@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/crydensync/cryden/v2/auth"
 	"github.com/crydensync/cryden/v2/security"
 	"github.com/crydensync/cryden/v2/store"
 	"github.com/crydensync/cryden/v2/store/memory"
@@ -232,5 +233,42 @@ func TestListNamedSessions_SurvivesAFailingGeolocator(t *testing.T) {
 	}
 	if len(list) != 1 || list[0].Label != "Chrome on Windows" {
 		t.Errorf("expected a device-only label, got %+v", list)
+	}
+}
+
+// stubRateLimiter is the shape a host app supplies when it replaces the
+// default limiter: something the engine only ever reaches through the
+// security.RateLimiter interface, with no idea where the count lives.
+type stubRateLimiter struct {
+	allow bool
+	keys  []string
+}
+
+func (s *stubRateLimiter) Allow(_ context.Context, key string) (bool, error) {
+	s.keys = append(s.keys, key)
+	return s.allow, nil
+}
+
+var _ security.RateLimiter = (*stubRateLimiter)(nil)
+
+// Wiring a limiter into Config has to reach the real call path, not just
+// the Engine struct — this asserts the injected limiter is the one
+// SignUp consults, and that it is handed the key auth builds rather than
+// something the facade invented.
+func TestSignUp_UsesTheConfiguredRateLimiter(t *testing.T) {
+	limiter := &stubRateLimiter{allow: false}
+	cfg := validConfig()
+	cfg.RateLimiter = limiter
+	engine, err := New(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	_, err = SignUp(context.Background(), engine, "raymondproguy@dev.com", "Tr0ubl3-Fr33!2026", "1.2.3.4")
+	if err != auth.ErrRateLimited {
+		t.Fatalf("expected auth.ErrRateLimited from a limiter that denies, got %v", err)
+	}
+	if len(limiter.keys) != 1 || limiter.keys[0] != "signup:1.2.3.4" {
+		t.Errorf("expected one call keyed \"signup:1.2.3.4\", got %v", limiter.keys)
 	}
 }

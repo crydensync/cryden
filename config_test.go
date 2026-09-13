@@ -2,9 +2,11 @@ package cryden
 
 import (
 	"testing"
+	"time"
 
 	"github.com/crydensync/cryden/v2/security"
 	"github.com/crydensync/cryden/v2/store/memory"
+	"github.com/redis/go-redis/v9"
 )
 
 func validConfig() Config {
@@ -221,5 +223,53 @@ func TestNew_AcceptsAGeolocator(t *testing.T) {
 	}
 	if e.geolocator == nil {
 		t.Error("expected Config.Geolocator to reach the engine")
+	}
+}
+
+// The in-process limiter stays the default: it needs no infrastructure,
+// and every existing caller gets exactly what it got before.
+func TestNew_DefaultsToTheInProcessRateLimiter(t *testing.T) {
+	e, err := New(validConfig())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := e.rateLimiter.(*security.InMemoryRateLimiter); !ok {
+		t.Errorf("expected an InMemoryRateLimiter by default, got %T", e.rateLimiter)
+	}
+}
+
+func TestNew_AcceptsACustomRateLimiter(t *testing.T) {
+	limiter := &stubRateLimiter{allow: true}
+	cfg := validConfig()
+	cfg.RateLimiter = limiter
+	e, err := New(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if e.rateLimiter != limiter {
+		t.Errorf("expected Config.RateLimiter to reach the engine, got %T", e.rateLimiter)
+	}
+}
+
+// The integration a host app actually writes, compiled and wired here so
+// it cannot rot. No Redis is contacted: go-redis dials lazily on the
+// first command, and constructing an engine issues none.
+func TestNew_AcceptsARedisRateLimiter(t *testing.T) {
+	limiter, err := security.NewRedisRateLimiter(
+		redis.NewClient(&redis.Options{Addr: "127.0.0.1:6379"}),
+		10,
+		time.Minute,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	cfg := validConfig()
+	cfg.RateLimiter = limiter
+	e, err := New(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if e.rateLimiter != limiter {
+		t.Errorf("expected the Redis limiter to reach the engine, got %T", e.rateLimiter)
 	}
 }

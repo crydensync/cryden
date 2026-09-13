@@ -252,3 +252,78 @@ items 8 and 9 did not recur this session. Still unfixed, still worth its
 own small branch.
 
 Next in queue: item 11, the Redis-backed rate limiter.
+
+## 2026-09-05 — Redis-backed rate limiter (item 11)
+
+Branch: `feat/redis-rate-limiter` (6 commits, unmerged, unpushed,
+branched from `feat/named-sessions` at `345b2d7` — the tip of the chain,
+so this branch carries items 8, 9, 10 and 11).
+
+Built: `security/RedisRateLimiter`, a second real implementation of the
+existing `security.RateLimiter`, so counters live in Redis instead of a
+per-process Go map. `security/redisratelimiter.go` holds the type, two
+constructors and the Lua; `security/errors.go` gains three sentinels;
+`Config.RateLimiter` accepts an already-constructed limiter and
+`engine.go` falls back to the in-process default only when it is nil.
+Nothing in `auth/` changed — every call site already held the interface.
+
+Assumptions and calls made, none of which `NEXT.md` specified:
+
+- **`github.com/redis/go-redis/v9`**, and the injected type is that
+  library's own `redis.Scripter` rather than `*redis.Client` or a bespoke
+  narrow interface. Client, ClusterClient, Ring and UniversalClient all
+  satisfy it, `redis.NewScript`'s EVALSHA→EVAL fallback comes along for
+  free instead of being reimplemented, and a fake stays writable via
+  `redis.NewCmdResult`/`redis.ErrNoScript`. This is the engine's first
+  direct third-party dependency of this kind — justified on `NEXT.md`'s
+  own terms: Redis is configured infrastructure, the same category as
+  Postgres and `lib/pq`, not an internet service like HIBP.
+- **One Lua script per `Allow`.** INCR and PEXPIRE as two round trips
+  lets two replicas each arm their own window over one key, which is
+  precisely the bug this item exists to fix.
+- **`PEXPIRE` only when `INCR` returns 1** (or when `PTTL` reports no
+  expiry, which self-heals a counter left without one). Arming it on
+  every call is the more obvious idiom and is wrong: it turns a blocked
+  client's own retries into a permanent block, and it would also break
+  parity with the in-memory limiter's fixed window.
+- **Fixed-window parity is deliberate.** Same allow/deny arithmetic as
+  `InMemoryRateLimiter` (calls 1..limit pass, limit+1 denied, window
+  never extended) so the two are interchangeable. A sliding window would
+  be a different feature with a different cost, not an improvement
+  smuggled into this one.
+- **Two positional constructors** (`NewRedisRateLimiter` and
+  `...WithPrefix`) over functional options, matching every other
+  constructor in the repo. Default prefix `cryden:ratelimit:` so a
+  counter can never collide with a host app's own keys; an empty prefix
+  is legal and means raw keys.
+- **Windows under 1ms are rejected, not rounded.** `PEXPIRE` cannot
+  express them. This is the one place the two implementations are not
+  interchangeable, and it is documented as such rather than papered over.
+- **Fail-closed left as it was.** All three call sites already propagate
+  a limiter error, so wiring Redis makes it a hard dependency of SignUp,
+  Login and RequestMagicLink. Changing caller behaviour was out of scope
+  for this item; instead the trade-off is documented, along with the
+  fail-open wrapper a host can write against the interface. The error is
+  wrapped, never `ErrRateLimited`, so callers can still tell "limit hit"
+  from "limiter broken".
+- **Exactly one key per call**, so Redis Cluster needs no special
+  handling and the script never spans hash slots.
+- Replaced a stale comment in `go.mod` that claimed the module proxy was
+  unreachable; it is, and go-redis is now a direct require.
+
+Verification: `gofmt -l .` clean, `go build ./...`, `go vet ./...` and
+`go test ./...` all clean, `go test -race` clean, and the smoke test
+passes all 58 checks over ten scenarios.
+
+**The one real gap: no Redis server was reachable here** (no daemon,
+`docker info` unavailable), so the Lua was executed only against a
+stand-in that models its semantics, never by Redis itself. The Go side —
+allow/deny arithmetic, the fixed window, prefixing, the EVALSHA→EVAL
+fallback, fail-closed propagation through the engine — is genuinely
+tested; the script's own behaviour on a real server is not. Rather than
+claim otherwise, the smoke test takes `REDIS_ADDR` and runs every
+scenario against a live server, namespacing and cleaning up its own
+keys, and `docs/testing/redis-rate-limiter.md` opens with the two
+commands that close the gap. Worth doing before this branch is merged.
+
+Next in queue: item 12, Argon2id as an additional trusted hasher.
