@@ -131,6 +131,21 @@ const (
 	EventRecoveryCodeUsed        AuditEventType = "recovery_code_used"
 	EventRecoveryCodeFailed      AuditEventType = "recovery_code_failed"
 	EventPasswordBreachRejected  AuditEventType = "password_breach_rejected"
+
+	// EventAnomalyDetected records that a login attempt tripped one or
+	// more anomaly signals (see security.AnomalySignal). Metadata
+	// carries a "signals" key listing which ones fired, plus the counts
+	// behind them. Recorded on an otherwise SUCCESSFUL primary
+	// authentication — it annotates a login that was allowed to
+	// proceed, it is never a rejection, and there is deliberately no
+	// matching sentinel error for callers to branch on.
+	EventAnomalyDetected AuditEventType = "anomaly_detected"
+
+	// EventCredentialStuffingDetected records that one IP's recent failed
+	// attempts were spread across enough different target accounts to
+	// look like credential stuffing rather than a forgotten password.
+	EventCredentialStuffingDetected AuditEventType = "credential_stuffing_detected"
+	
 )
 
 // AuditEvent is a single security-relevant, queryable record.
@@ -322,4 +337,33 @@ type RecoveryCodeStore interface {
 	// stand in as a login gate on their own. DeleteAll exists for
 	// hygiene, if a host app wants to clean up explicitly.
 	DeleteAll(ctx context.Context, userID string) error
+}
+
+type LoginAttemptOutcome string
+
+const (
+	OutcomeSuccess LoginAttemptOutcome = "success"
+	OutcomeFailure LoginAttemptOutcome = "failure"
+)
+
+type LoginAttempt struct {
+	ID        string
+	UserID    string
+	IP        string
+	UserAgent string
+	Outcome   LoginAttemptOutcome
+	CreatedAt time.Time
+}
+
+type AnomalyStore interface {
+	RecordAttempt(ctx context.Context, attempt LoginAttempt) error
+	ListRecentSuccesses(ctx context.Context, userID string, limit int) ([]LoginAttempt, error)
+	CountFailuresForUser(ctx context.Context, userID string, since time.Time) (int, error)
+	CountFailuresForIP(ctx context.Context, ip string, since time.Time) (int, error)
+	CountTargetsForIP(ctx context.Context, ip string, since time.Time) (IPTargetCounts, error)
+}
+
+type IPTargetCounts struct {
+	DistinctAccounts     int
+	UnknownTargetFailures int
 }
