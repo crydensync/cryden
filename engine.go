@@ -57,10 +57,21 @@ func New(cfg Config) (*Engine, error) {
 	}
 	cfg.applyDefaults()
 
-	hasher, err := security.NewBcryptHasher(cfg.BcryptCost)
-	if err != nil {
-		return nil, err
+	// A host-supplied hasher wins outright; bcrypt at the configured
+	// cost is built only when none was given. Either way the result is
+	// wrapped in a MultiHasher, unconditionally: dispatch costs nothing
+	// (a stored hash names its own algorithm) and it is what keeps hashes
+	// written before a switch verifiable after it. Nothing in auth/ can
+	// tell the difference — every call site holds security.Hasher.
+	primary := cfg.Hasher
+	if primary == nil {
+		bcryptHasher, err := security.NewBcryptHasher(cfg.BcryptCost)
+		if err != nil {
+			return nil, err
+		}
+		primary = bcryptHasher
 	}
+	hasher := security.NewMultiHasher(primary)
 
 	refreshGen, err := token.NewCryptoRandTokenGenerator(cfg.RefreshTokenByteLength)
 	if err != nil {

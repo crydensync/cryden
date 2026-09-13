@@ -327,3 +327,85 @@ keys, and `docs/testing/redis-rate-limiter.md` opens with the two
 commands that close the gap. Worth doing before this branch is merged.
 
 Next in queue: item 12, Argon2id as an additional trusted hasher.
+
+## 2026-09-05 — Argon2id hasher (item 12)
+
+Branch: `feat/argon2id-hasher`, off `feat/redis-rate-limiter` at
+`334c071` (so it carries items 8–12). 7 commits.
+
+Built a second `security.Hasher` — `Argon2idHasher` writing PHC strings
+(`$argon2id$v=19$m=…,t=…,p=…$salt$key`), a `MultiHasher` that dispatches
+`Compare` on the stored hash's own format, `Config.Hasher`, and
+upgrade-on-login in `auth/rehash.go` recording a new
+`store.EventPasswordHashUpgraded` audit event.
+
+Assumptions and decisions made without asking:
+
+- **Format sniffing, as the spec suggested** — and worth stating why it
+  is the right answer rather than merely the common one: it makes
+  verification *stateless*. An algorithm column can disagree with the
+  hash sitting next to it; a prefix cannot. So there is no migration, no
+  backfill, and no window where some accounts can't log in.
+- **`Config.Hasher security.Hasher`, already constructed**, with
+  `BcryptCost` ignored when set — item 11's `Config.RateLimiter`
+  precedent applied verbatim, rather than an algorithm enum plus a params
+  struct. Cost parameters stay where they can be tuned to the host's
+  hardware.
+- **The engine wraps unconditionally in `MultiHasher`.** Dispatch is free
+  (a stored hash names its own algorithm), so there is no configuration
+  in which "old hashes stopped verifying" can happen. `NewMultiHasher` is
+  idempotent so a host that wraps its own hasher gets no second layer.
+- **`Rehasher` is an optional interface, not part of `Hasher`.** Adding a
+  method to an exported v2 interface would break every host that
+  implements it. A non-`Rehasher` primary simply never triggers an
+  upgrade — the only safe default, since there's no way to guess what
+  someone else's implementation considers out of date.
+- **Upgrade-on-login is in scope.** The spec's "mid-migration user base"
+  is otherwise unreachable: without it, an account that never changes its
+  password never migrates. Implemented fire-and-forget — the login
+  already succeeded before it runs, so a store that refuses the write
+  logs an error and the login still returns tokens. `ChangePassword`
+  needed nothing; it already writes a fresh hash.
+- **"Out of date" means weaker, never merely different**, and excludes
+  `Parallelism`: it's a hardware-shaped throughput knob, and including it
+  would rewrite every stored hash the first time the service moved to a
+  machine with a different core count. A stronger stored hash is left
+  alone rather than walked back down.
+- **Defaults are RFC 9106's second option** (64 MiB, t=3, p=4, 16-byte
+  salt, 32-byte key). Zero-value `Argon2idParams{}` means defaults; one
+  field set counts as a real config, same rule as `PasswordPolicy`.
+- **Panic guards on the decode path.** `x/crypto/argon2` panics on
+  `time < 1` or `threads < 1`, so both the constructor and the decoder
+  reject those, and the decoder caps `m=` at 4 GiB — a corrupt stored
+  parameter must not turn a login into a multi-terabyte allocation. The
+  params segment is also round-tripped through the encoder, which rejects
+  trailing junk and leading zeros that `Sscanf` would otherwise accept.
+- **No new module dependency**: `golang.org/x/crypto` was already
+  required by bcrypt.
+
+One thing the smoke test found and the docs now record: a hash truncated
+*inside* its base64 key is not detectably malformed — a shorter key is a
+legal parameter choice, and the decoder accepts the length it finds so
+that hashes written under other `KeyLength`s keep verifying. It reads as
+a password mismatch instead, which is the outcome that matters.
+
+One pre-existing flake fixed on the way past, not caused by this item:
+`TestLogin_NonexistentUserTimingMatchesWrongPassword` compared a single
+cost-4 bcrypt sample per path against a `ratio < 0.5` floor, which one
+scheduling hiccup could breach — about one full-suite run in five once
+the new packages added parallel load. It now takes the fastest of five
+samples per path (noise only ever adds time, so the minimum is the best
+estimate of the real work) and passes a lockout threshold high enough
+that later samples still reach `hasher.Compare` instead of returning
+`ErrAccountLocked`. Verified both ways: 8/8 clean with the dummy hash in
+place, and still failing at ratio 0.00 with it removed, so the
+regression it exists to catch is caught with a far wider margin than
+before.
+
+Verification: `gofmt -l .` clean, `go build ./...`, `go vet ./...` and
+`go test ./...` all clean (three consecutive full runs), and `go run
+./cmd/smoketest/argon2id-hasher` passes all 120 checks over twelve
+sections. Unlike item 11 there is no external service to reach, so
+nothing here is left unverified.
+
+Next in queue: item 13, an additional storage backend beyond Postgres.
