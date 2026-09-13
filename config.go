@@ -96,48 +96,6 @@ type Config struct {
 	// own doc comment); a checker error fails open rather than
 	// blocking the account action.
 	BreachedPasswordChecker security.BreachedPasswordChecker
-	// Geolocator is optional — only used by ListNamedSessions, to turn
-	// a session's IP into the location half of its label. Ships no
-	// implementation (see the type's own doc comment); left nil, labels
-	// are device-only ("Chrome on Windows") and nothing else changes. A
-	// geolocator error fails open to "location unknown" rather than
-	// failing the listing.
-	Geolocator security.IPGeolocator
-	// Anomalies is optional — set it to turn login anomaly detection
-	// on. Left unset, no detection runs at all and nothing about login
-	// changes; there is no partial or degraded mode. Detection is
-	// report-only in every case: a flagged attempt records a
-	// store.EventAnomalyDetected audit event carrying which signals
-	// fired, and the host app decides what that's worth. The engine
-	// never blocks, never forces step-up authentication, and returns no
-	// error a caller could branch on.
-	Anomalies store.AnomalyStore
-	// AnomalyThresholds tunes how sensitive that detection is. Like
-	// PasswordPolicy, leaving the entire struct zero-valued applies
-	// security.DefaultAnomalyThresholds, and setting even one field
-	// counts as a real custom configuration used as-is. Ignored
-	// entirely when Anomalies is nil.
-	AnomalyThresholds security.AnomalyThresholds
-	// CredentialStuffingThresholds tunes credential-stuffing detection —
-	// "one IP failing against many different accounts," which is the gap
-	// LockoutThreshold structurally cannot see (lockout counts failures
-	// against one account; a spray gives each account only one).
-	//
-	// Shares the Anomalies store as its on/off switch rather than having
-	// its own: it is the same login_attempts history read a second way,
-	// not a second tracking system, and a host app that wanted per-IP
-	// failure velocity but specifically not its breadth counterpart would
-	// be a configuration with no coherent use. To silence just this one,
-	// set TargetAccounts (or Window) to zero — the same off switch every
-	// AnomalyThresholds knob has.
-	//
-	// Zero-valued as a whole applies
-	// security.DefaultCredentialStuffingThresholds, exactly like
-	// PasswordPolicy and AnomalyThresholds. Ignored entirely when
-	// Anomalies is nil. Report-only in every case: a flagged IP records a
-	// store.EventCredentialStuffingDetected audit event and nothing else
-	// — no login is ever blocked, delayed, or forced into step-up by it.
-	CredentialStuffingThresholds security.CredentialStuffingThresholds
 
 	// Optional — sensible defaults applied in New() if zero-valued.
 	// These are tuning knobs, not security-critical secrets, so
@@ -232,19 +190,6 @@ func (c *Config) applyDefaults() {
 	// custom policy just because one field was left at its default.
 	if c.PasswordPolicy == (security.PasswordPolicy{}) {
 		c.PasswordPolicy = security.DefaultPasswordPolicy
-	}
-	// Same whole-struct comparison, same reasoning as PasswordPolicy
-	// above — a caller who sets only Window meant to keep the default
-	// thresholds, not to zero every one of them (which would silently
-	// disable every threshold-based signal).
-	if c.AnomalyThresholds == (security.AnomalyThresholds{}) {
-		c.AnomalyThresholds = security.DefaultAnomalyThresholds
-	}
-	// Defaulted independently of AnomalyThresholds above, which is the
-	// whole reason these are two structs: a host app tuning one must not
-	// silently zero — and so disable — the other.
-	if c.CredentialStuffingThresholds == (security.CredentialStuffingThresholds{}) {
-		c.CredentialStuffingThresholds = security.DefaultCredentialStuffingThresholds
 	}
 	if c.Logger == nil {
 		c.Logger = logger.NewConsoleJSONLogger()
