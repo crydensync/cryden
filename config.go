@@ -7,6 +7,7 @@ import (
 	"github.com/crydensync/cryden/v2/notify"
 	"github.com/crydensync/cryden/v2/security"
 	"github.com/crydensync/cryden/v2/store"
+	"github.com/crydensync/cryden/v2/token"
 )
 
 // Config wires an Engine. Stores are injected directly, not
@@ -138,6 +139,24 @@ type Config struct {
 	// store.EventCredentialStuffingDetected audit event and nothing else
 	// — no login is ever blocked, delayed, or forced into step-up by it.
 	CredentialStuffingThresholds security.CredentialStuffingThresholds
+
+	// AccessTokenClaims is optional — set it to attach the host app's own
+	// data to every access token, so a gateway holding a verified token
+	// can read a role or a tenant ID out of it instead of looking the
+	// user up again. Left nil, tokens carry the same registered claims
+	// they always have (sub/iat/exp) and nothing about issuing changes.
+	//
+	// Three things worth knowing before wiring one, all of them in
+	// token.ClaimsProvider's doc comment at length: it cannot set the
+	// registered claim names and fails the token if it tries; an error
+	// from it fails the login or refresh rather than issuing a token
+	// without the claims; and it runs on every login AND every refresh,
+	// which at the default AccessTokenTTL is roughly every 15 minutes per
+	// active session — a database query in there is a database query on
+	// that schedule.
+	//
+	// Read the claims back with VerifyTokenWithClaims.
+	AccessTokenClaims token.ClaimsProvider
 
 	// Optional — sensible defaults applied in New() if zero-valued.
 	// These are tuning knobs, not security-critical secrets, so
