@@ -111,6 +111,11 @@ func Login(
 		log.Error("login: reset failed-attempts error", map[string]string{"error": err.Error(), "user_id": user.ID})
 	}
 
+	// The one moment the plaintext password and the stored hash are both
+	// in hand, which is the only moment an out-of-date hash can be
+	// rewritten. Never fails the login (see upgradePasswordHash).
+	upgradePasswordHash(ctx, users, hasher, audit, log, user, password, callerIP)
+
 	// Password verified. Route through the same second-factor gate
 	// every primary authentication method uses (magic-link login goes
 	// through this too) — a correct password only ever proves the
