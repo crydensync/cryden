@@ -214,9 +214,9 @@ re-derive it**:
   `CountTargetsForIP`, added by item 9 above against the same table.
 
 
-## Tier 3 — Infrastructure & Extensibility: IN PROGRESS (3 of 7)
+## Tier 3 — Infrastructure & Extensibility: IN PROGRESS (4 of 7)
 
-Four items left. See `NEXT.md`.
+Three items left. See `NEXT.md`.
 
 ### Item 12 — Argon2id hasher: DONE, branch `feat/argon2id-hasher`
 
@@ -388,6 +388,69 @@ Manual guide: `docs/testing/cloud-loggers.md`. `gofmt -l`, `go build
 ./...`, `go vet ./...` and `go test ./...` all clean here; no external
 service needed.
 
+### Item 15 — extensible JWT claims: DONE, branch `feat/jwt-claims`
+
+`Config.AccessTokenClaims` takes a `token.ClaimsProvider` —
+`AccessTokenClaims(ctx, userID) (map[string]any, error)` — and whatever it
+returns is merged into every access token the engine issues. Read back
+with `cryden.VerifyTokenWithClaims`, which is `VerifyToken` plus the
+host's claims with the registered ones stripped out.
+
+`NEXT.md` offered two shapes and the **hook won on one fact: the host
+cannot supply claims on the refresh path.** `RefreshToken` takes a
+refresh token and nothing else, so an `extraClaims` parameter would have
+to be threaded through six facade functions and would *still* leave
+refreshed tokens claimless — tokens that work for fifteen minutes and
+then quietly stop carrying authorization. Injected once, it covers both
+paths by construction.
+
+Nothing existing broke: `Issue`, `Verify` and `NewJWTIssuer` keep their
+signatures (`Issue` now wraps `IssueWithContext(context.Background(), …)`,
+`NewJWTIssuer` wraps `NewJWTIssuerWithClaims(…, nil)` — the
+`NewRedisRateLimiterWithPrefix` precedent), and exactly two call sites
+moved to the ctx form: `auth/login.go`'s `finishLogin` and `cryden.go`'s
+`RefreshToken`, both of which already held a ctx. A nil provider is
+byte-for-byte today's behaviour. New files: `token/claims.go`,
+`token/claims_test.go`, `claims_facade_test.go`,
+`cmd/smoketest/jwt-claims/`, `docs/testing/jwt-claims.md`. `go.mod`
+unchanged.
+
+The security core, and the reason this item needed care: **all seven RFC
+7519 §4.1 registered names are refused, all-or-nothing, before anything
+is merged.** `sub` is why — `Verify` reads the user ID out of it, so a
+provider able to write it could mint a token authenticating as somebody
+else. The other six are refused too, so the rule does not need revisiting
+the day the engine starts setting `aud` or `jti`. Matching is
+case-sensitive (JSON keys are; `SUB` is inert and passes through).
+
+The `alg: none` defence is **stronger, not weaker**, as the spec
+required: the keyfunc's `*jwt.SigningMethodHMAC` check stays, and
+`jwt.WithValidMethods(["HS256"])` plus `jwt.WithExpirationRequired()` sit
+over it. `accessClaims` is gone in favour of `jwt.MapClaims`, so the
+subject is now a type assertion — an absent, empty or non-string `sub` is
+an invalid token rather than an empty user ID.
+
+Decisions worth not re-deriving (reasoning in `PROGRESS.md`): a provider
+error **fails the token**, deliberately the opposite of
+`BreachedPasswordChecker`'s fail-open, because a missing claim is an
+absence a gateway may read as permission; `finishLogin` therefore now
+issues the access token **before** writing the session row, so a login
+that fails there leaves nothing behind; on refresh the rotation cannot be
+undone, so a provider failure there costs the session and the user logs
+in again (pinned by a test, documented, not papered over); claims are
+re-evaluated on **every** access token, which is the role-propagation
+story and also a provider call every ~15 minutes per active session.
+
+Tests: 18 in `token/claims_test.go` (every reserved name, empty name,
+unmarshalable value, wrapped provider error, no-exp and HS512 forgeries,
+non-string subject), six in `claims_facade_test.go` (claims in a real
+login, re-evaluated on refresh, nil without a provider, and the two
+fail-closed consequences). Smoke test: `cmd/smoketest/jwt-claims` (75
+checks over eight sections, including eight forged tokens signed with the
+engine's own secret). Manual guide: `docs/testing/jwt-claims.md`.
+`gofmt -l`, `go build ./...`, `go vet ./...` and `go test ./...` all clean
+here.
+
 ## Tier 4 — AI-assisted admin features: NOT STARTED
 
 Four items, all read-only/surface-only by explicit, non-negotiable
@@ -451,6 +514,13 @@ project brief.
   `cryden.go` — so the same by-hand adjacency as items 10-12 applies if
   it is lifted onto `main` alone. It adds **no dependency** and needs no
   external service. Unmerged and unpushed.
+- `feat/jwt-claims` — item 15, complete, 7 commits, branched from
+  `feat/cloud-loggers` at `40fa2db`, the tip of the chain, so this branch
+  carries items 8 through 15. Touches engine files (`config.go`,
+  `engine.go`, `cryden.go`, `auth/login.go`) as well as `token/`, so the
+  same by-hand adjacency as items 10-12 and 14 applies if it is lifted
+  onto `main` alone. It adds **no dependency** — `golang-jwt/jwt/v5` was
+  already there — and needs no external service. Unmerged and unpushed.
 - `fix/committed-smoketest-binary` — not a queue item. A pre-existing
   bug found while working on item 14: a 9.8 MB compiled `argon2id-hasher`
   binary was committed to the repo by item 12's session (`57a5dbd`) and

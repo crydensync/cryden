@@ -14,18 +14,7 @@ patterns and note the assumption in `PROGRESS.md` — don't block on it.
 
 ## Tier 3 — Infrastructure & Extensibility
 
-### 1. Extensible JWT claims (item 15)
-
-Let host apps attach their own data to access tokens. Read
-`token/jwt.go`'s current claims struct and `JWTIssuer.Issue` before
-proposing anything — whatever you add must not weaken the existing
-algorithm-confusion protections already there (the `alg: none`/
-signing-method check). Likely shape: `Issue` gains an optional
-`extraClaims map[string]interface{}` parameter, or a small
-`ClaimsProvider` hook — pick whichever fits the existing `Issue`
-call sites with the least disruption.
-
-### 2. API keys / machine-to-machine auth (item 16)
+### 1. API keys / machine-to-machine auth (item 16)
 
 New concept, not a variant of an existing one — no human to prompt, so
 this sits outside the second-factor system entirely (confirm this
@@ -37,7 +26,7 @@ values, not human passwords), and its own facade functions
 (`GenerateAPIKey`, `RevokeAPIKey`, and something that validates a
 presented key and returns which user/scope it belongs to).
 
-### 3. Webhooks (item 17)
+### 2. Webhooks (item 17)
 
 Notify the host app on key events. Same question as everything else
 that reaches outward: interface-only, zero shipped implementations
@@ -49,7 +38,7 @@ subset, not all of them) and wire it in wherever `audit.Record` is
 already called for those events — don't build a second parallel event
 bus.
 
-### 4. Custom email templates (item 18)
+### 3. Custom email templates (item 18)
 
 Check `notify.EmailSender`/`notify.MagicLinkSender` as they exist
 today first — there's a real chance this needs **no engine change at
@@ -67,19 +56,19 @@ than building something speculative to have built something.
 automatic action — no auto-lock, no auto-config-change, nothing. Every
 one of these produces information for a human to act on.
 
-### 5. Weekly digest (item 19)
+### 4. Weekly digest (item 19)
 Reads `AuditStore`, summarizes in plain English, returns text. Nothing
 else.
 
-### 6. Support-ticket assistant (item 20)
+### 5. Support-ticket assistant (item 20)
 Read-only diagnosis ("why can't user X log in") — queries
 `AuditStore`/`UserStore`/session state, produces an explanation, never
 touches anything.
 
-### 7. Config tuning advisor (item 21)
+### 6. Config tuning advisor (item 21)
 Produces a report of suggested config changes. Never applies them.
 
-### 8. Ask-AI widget (item 22)
+### 7. Ask-AI widget (item 22)
 The most complex of the four. Needs its own full design pass before
 any code — at minimum: an LLM provider interface (zero shipped
 implementations, host brings their own key/provider, same pattern as
