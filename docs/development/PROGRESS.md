@@ -704,3 +704,60 @@ engine's own secret, and the decoded payload printed for inspection. No
 external service needed.
 
 Next in queue: item 16, API keys / machine-to-machine auth.
+
+## 2026-09-05 — item 16, API keys / machine-to-machine auth
+
+Branch: `feat/api-keys` (8 commits, branched from `feat/jwt-claims` at
+`8bb452b`). Built: `store.APIKeyStore` in all three backends behind
+SHA-256 hashes and a unique `key_hash` index, `auth/apikeys.go`, and
+four facade functions — `GenerateAPIKey` (returns `ck_<64 hex>` once),
+`AuthenticateAPIKey` (→ `APIKeyIdentity`), `ListAPIKeys`,
+`RevokeAPIKey`. Migrations `0007_api_keys` (Postgres) and
+`0002_api_keys` (SQLite). The spec's assumption held: no M2M auth
+existed anywhere in the tree, and this sits outside the second-factor
+system entirely.
+
+Assumptions and decisions, none of which the spec settled:
+
+- **`ListAPIKeys` is a fourth function beyond the three asked for.**
+  `RevokeAPIKey` takes a key ID and nothing else returns one after
+  creation, so the spec's three do not compose into a usable feature.
+- **Key secrets reuse the engine's refresh-token generator** rather
+  than adding a `APIKeyByteLength` knob. 32 bytes by default, the
+  existing 16-byte minimum still enforced; one entropy setting instead
+  of two that can disagree.
+- **Password lockout deliberately does not reach keys.** Otherwise
+  anyone who knows a developer's email address can take down that
+  account's production integrations by failing to log in five times.
+  Revocation is what stops a key.
+- **No rate limiting on the authenticate path.** Limiting by key needs
+  the key hashed and looked up first, at which point the work is
+  already done; limiting by IP would throttle the CI runner this
+  exists for. Documented as the host's job at the edge.
+- **Successful and unrecognised authentications record no audit row** —
+  one per request would bury the table, and auditing unknown keys hands
+  anyone with a wordlist a write endpoint into it. Only refusals of
+  keys that really exist are recorded, with `reason`.
+- **`LastUsedAt` is written at most once every five minutes per key**,
+  so the hot read is not also a write. It answers "still in use", not
+  "when exactly".
+- **Expired keys stay listed; revoked ones do not.** An expired key is
+  something its owner may want to renew, a revoked one is a decision
+  already made.
+- **No dedicated `store/memory/api_key_store_test.go`.** Nine of the
+  ten memory stores have no test file (only `anomaly_store`, which has
+  real windowing logic); this one is exercised throughout
+  `auth/apikeys_test.go` and the root end-to-end test.
+- **`Config.APIKeyPrefix` is validated at `New`**, not at first use —
+  no whitespace and no underscore, since the underscore separates the
+  prefix from the secret.
+
+Verification: `gofmt -l` clean on every changed file, `go build ./...`,
+`go vet ./...` and `go test ./... -count=1` all clean (25 new tests),
+and `go run ./cmd/smoketest/api-keys` passes all 96 checks over ten
+sections — the round trip, the unconfigured path, listing, revocation,
+expiry, nine malformed keys, refused arguments, a locked-out account
+whose key keeps working, the audit trail, and the stored hash printed
+for inspection. No external service needed.
+
+Next in queue: item 17, webhooks.

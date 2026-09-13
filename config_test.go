@@ -413,3 +413,46 @@ func TestNew_ASwitchedHasherStillLogsInOldAccounts(t *testing.T) {
 		t.Errorf("got %d password_hash_upgraded events, want exactly 1", len(events))
 	}
 }
+
+func TestNew_DefaultsTheAPIKeyPrefix(t *testing.T) {
+	e, err := New(validConfig())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if e.apiKeyPrefix != "ck" {
+		t.Errorf("apiKeyPrefix = %q, want ck", e.apiKeyPrefix)
+	}
+	if e.apiKeys != nil {
+		t.Error("expected no APIKeyStore by default")
+	}
+}
+
+func TestNew_AcceptsAnAPIKeyStoreAndPrefix(t *testing.T) {
+	cfg := validConfig()
+	cfg.APIKeys = memory.NewAPIKeyStore()
+	cfg.APIKeyPrefix = "acme"
+	e, err := New(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if e.apiKeys == nil {
+		t.Error("expected Config.APIKeys to reach the engine")
+	}
+	if e.apiKeyPrefix != "acme" {
+		t.Errorf("apiKeyPrefix = %q, want acme", e.apiKeyPrefix)
+	}
+}
+
+// The underscore separates the label from the secret, so a prefix
+// containing one produces a key whose displayed prefix disagrees with
+// its own format. Rejected at construction rather than at the first
+// GenerateAPIKey call months later.
+func TestNew_RejectsAnUnusableAPIKeyPrefix(t *testing.T) {
+	for _, prefix := range []string{"ck_v2", "my key", "ck\t", "ck\n"} {
+		cfg := validConfig()
+		cfg.APIKeyPrefix = prefix
+		if _, err := New(cfg); err != ErrInvalidAPIKeyPrefix {
+			t.Errorf("prefix %q: expected ErrInvalidAPIKeyPrefix, got %v", prefix, err)
+		}
+	}
+}

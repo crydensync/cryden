@@ -426,3 +426,121 @@ func CompleteLoginWithRecoveryCode(ctx context.Context, e *Engine, pendingToken,
 	}
 	return auth.CompleteLoginWithRecoveryCode(ctx, e.users, e.sessions, e.recoveryCodes, e.ids, e.refreshGen, e.jwtIssuer, e.pendingIssuer, e.audit, e.logFor(ctx), pendingToken, code, callerIP, userAgent)
 }
+
+// APIKeyIdentity is what AuthenticateAPIKey resolves a valid key to:
+// the account it acts as, which key it was, and the host-defined
+// scopes it carries. Not a session — nothing here is refreshed,
+// revoked by Logout, or listed by ListSessions.
+type APIKeyIdentity = auth.APIKeyIdentity
+
+// APIKey is a public, storage-detail-free view of one API key, for
+// listing. The secret is deliberately absent: it exists exactly once,
+// in GenerateAPIKey's return value, and the engine stores only its
+// hash. Prefix is what a UI shows instead.
+type APIKey struct {
+	// ID is what RevokeAPIKey takes.
+	ID   string
+	Name string
+	// Prefix is the non-secret leading fragment of the key
+	// ("ck_9f3a1c02"), enough to tell one of a user's keys from
+	// another in a list.
+	Prefix string
+	Scopes []string
+	// ExpiresAt is nil for a key that never expires.
+	ExpiresAt *time.Time
+	CreatedAt time.Time
+	// LastUsedAt is nil until the key is first used, and is written at
+	// most once every five minutes thereafter — it answers "is this
+	// still in use", not "when exactly was the last request".
+	LastUsedAt *time.Time
+}
+
+// Expired reports whether the key has passed its expiry. Listed keys
+// can be expired: a key that stopped working on Tuesday is the answer
+// to why a pipeline broke, so it stays visible until it is revoked.
+func (k APIKey) Expired() bool {
+	return k.ExpiresAt != nil && !time.Now().Before(*k.ExpiresAt)
+}
+
+// ErrAPIKeysNotConfigured is returned by every API key function if the
+// Engine was built without Config.APIKeys set.
+var ErrAPIKeysNotConfigured = errors.New("cryden: API keys require Config.APIKeys to be set")
+
+// GenerateAPIKey mints a machine-to-machine credential for an
+// already-authenticated user — a service account for their CI, their
+// deploy scripts, their own CLI. The raw key is returned exactly once:
+// show it to the user immediately, because the engine keeps only its
+// hash and can never retrieve it again.
+//
+// scopes are opaque host-defined strings; the engine stores them,
+// returns them on every successful authentication, and never
+// interprets them. ttl of 0 means the key never expires, which is the
+// usual answer for a credential living in a deploy pipeline's
+// environment — revocation, not expiry, is what stops a key.
+func GenerateAPIKey(ctx context.Context, e *Engine, userID, name string, scopes []string, ttl time.Duration) (rawKey string, key APIKey, err error) {
+	if e.apiKeys == nil {
+		return "", APIKey{}, ErrAPIKeysNotConfigured
+	}
+	raw, record, err := auth.GenerateAPIKey(ctx, e.users, e.apiKeys, e.ids, e.refreshGen, e.audit, e.logFor(ctx), userID, name, scopes, ttl, e.apiKeyPrefix)
+	if err != nil {
+		return "", APIKey{}, err
+	}
+	return raw, publicAPIKey(record), nil
+}
+
+// AuthenticateAPIKey resolves a raw key presented by a machine to the
+// user and scopes behind it. This is the entire M2M authentication
+// path: one indexed lookup, no session written, no tokens issued, no
+// second factor — there is no human at the other end to prompt.
+//
+// Every failure is auth.ErrInvalidAPIKey, whatever the reason: unknown
+// key, revoked key, expired key, empty string. A caller able to tell
+// those apart could probe which of the keys it stole are still live.
+func AuthenticateAPIKey(ctx context.Context, e *Engine, rawKey string) (APIKeyIdentity, error) {
+	if e.apiKeys == nil {
+		return APIKeyIdentity{}, ErrAPIKeysNotConfigured
+	}
+	return auth.AuthenticateAPIKey(ctx, e.apiKeys, e.audit, e.logFor(ctx), rawKey)
+}
+
+// ListAPIKeys returns userID's live keys, newest first — the "your API
+// keys" screen, and the only way to learn a key ID after creation.
+// Revoked keys are gone from it; expired ones are still there, marked
+// by APIKey.Expired.
+func ListAPIKeys(ctx context.Context, e *Engine, userID string) ([]APIKey, error) {
+	if e.apiKeys == nil {
+		return nil, ErrAPIKeysNotConfigured
+	}
+	records, err := auth.ListAPIKeys(ctx, e.apiKeys, userID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]APIKey, 0, len(records))
+	for _, r := range records {
+		out = append(out, publicAPIKey(r))
+	}
+	return out, nil
+}
+
+// RevokeAPIKey stops one of userID's keys permanently. There is no
+// un-revoke: the reason a key gets revoked is that somebody else may
+// have it. Returns auth.ErrAPIKeyNotFound for a key that does not
+// exist, is already revoked, or belongs to another user.
+func RevokeAPIKey(ctx context.Context, e *Engine, userID, keyID string) error {
+	if e.apiKeys == nil {
+		return ErrAPIKeysNotConfigured
+	}
+	return auth.RevokeAPIKey(ctx, e.apiKeys, e.audit, e.logFor(ctx), userID, keyID)
+}
+
+func publicAPIKey(r store.APIKey) APIKey {
+	return APIKey{
+		ID:         r.ID,
+		Name:       r.Name,
+		Prefix:     r.Prefix,
+		Scopes:     r.Scopes,
+		ExpiresAt:  r.ExpiresAt,
+		CreatedAt:  r.CreatedAt,
+		LastUsedAt: r.LastUsedAt,
+	}
+}

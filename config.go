@@ -1,6 +1,7 @@
 package cryden
 
 import (
+	"strings"
 	"time"
 
 	"github.com/crydensync/cryden/v2/logger"
@@ -84,6 +85,27 @@ type Config struct {
 	// ErrRecoveryCodesNotConfigured and Login never advertises
 	// "recovery_code" as an available second-factor method.
 	RecoveryCodes store.RecoveryCodeStore
+	// APIKeys is optional — only required if GenerateAPIKey /
+	// AuthenticateAPIKey / ListAPIKeys / RevokeAPIKey are used. Left
+	// unset, those facade functions return ErrAPIKeysNotConfigured and
+	// nothing else in the engine changes: an API key is a second,
+	// parallel way to authenticate as a user, never a step in the
+	// password login flow.
+	//
+	// Keys sit outside the second-factor system on purpose. There is no
+	// human behind a machine credential to prompt for a code, so a key
+	// that resolved and then asked for one would hang forever.
+	APIKeys store.APIKeyStore
+	// APIKeyPrefix is the non-secret label every generated key starts
+	// with, as in "ck_9f3a1c02...". Default "ck". Set it to something
+	// recognisable as yours ("acme") — the point of the convention is
+	// that a key leaked into a commit is greppable, so secret scanners
+	// and your own CI can find it before somebody else does.
+	//
+	// May not contain whitespace or an underscore: the underscore
+	// separates the label from the secret. Ignored unless APIKeys is
+	// set.
+	APIKeyPrefix string
 	// PasswordPolicy is checked on every SignUp/ChangePassword. Unlike
 	// TOTP/WebAuthn, this has no "unconfigured means off" state —
 	// leaving it as the entire zero value (security.PasswordPolicy{})
@@ -238,6 +260,12 @@ func (c *Config) validate() error {
 	if c.MagicLinkSender != nil && c.Verifications == nil {
 		return ErrMissingVerificationStore
 	}
+	// Checked whether or not APIKeys is set: a prefix that cannot be
+	// used is a typo worth reporting at construction, not at the first
+	// call to GenerateAPIKey six months later.
+	if c.APIKeyPrefix != "" && strings.ContainsAny(c.APIKeyPrefix, " \t\r\n_") {
+		return ErrInvalidAPIKeyPrefix
+	}
 	return nil
 }
 
@@ -286,6 +314,9 @@ func (c *Config) applyDefaults() {
 	// silently zero — and so disable — the other.
 	if c.CredentialStuffingThresholds == (security.CredentialStuffingThresholds{}) {
 		c.CredentialStuffingThresholds = security.DefaultCredentialStuffingThresholds
+	}
+	if c.APIKeyPrefix == "" {
+		c.APIKeyPrefix = "ck"
 	}
 	if c.Logger == nil {
 		c.Logger = logger.NewConsoleJSONLogger()
