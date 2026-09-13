@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/crydensync/cryden/v2"
 	"github.com/crydensync/cryden/v2/store/memory"

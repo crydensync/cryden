@@ -1,10 +1,8 @@
--- 0002_api_keys.up.sql (SQLite)
+-- 0007_api_keys.up.sql (SQLite)
 --
--- The first real 0002 here, as 0001's header said the next feature to
--- need a table would be. It is the equivalent of Postgres migration
--- 0007, and follows the same three type conventions 0001 documents at
--- length: TEXT timestamps at fixed width, TEXT identifiers declared
--- NOT NULL, and NULL as 'not yet' rather than a flag column.
+-- Equivalent of Postgres migration 0007. Renumbered from this
+-- package's old 0002_api_keys now that 0001 above is split to mirror
+-- Postgres file-for-file; content is unchanged from before.
 
 CREATE TABLE api_keys (
     id           TEXT PRIMARY KEY NOT NULL,
