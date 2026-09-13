@@ -1,7 +1,7 @@
 # cryden — current state
 
 Last updated: 2026-09-04 (by the session that built
-credential-stuffing detection). Update this file's date and content every time a session
+named/fingerprinted sessions). Update this file's date and content every time a session
 finishes an item — see `CLAUDE.md`'s end-of-session checklist.
 
 ## Tagged releases
@@ -24,7 +24,7 @@ If you find a real bug in it while working on something else, fix it
 on its own small branch and note it in `PROGRESS.md` — don't treat
 finding it as license to re-audit the rest.
 
-## Tier 2 — Security & Monitoring: IN PROGRESS (2 of 4 done)
+## Tier 2 — Security & Monitoring: IN PROGRESS (3 of 4 done)
 
 ### Item 8 — anomaly detection: DONE, branch `feat/anomaly-detection`
 
@@ -104,7 +104,44 @@ failures against ONE account is deliberately not flagged), 2 more in
 test: `cmd/smoketest/credential-stuffing` (99 checks). Manual guide:
 `docs/testing/credential-stuffing.md`.
 
-### Items 10-11: NOT STARTED
+### Item 10 — named/fingerprinted sessions: DONE, branch `feat/named-sessions`
+
+Not merged — the human reviews and pushes. Same "don't re-verify" note
+as everything above.
+
+`NEXT.md` called this the vaguest item in the backlog and expected a
+documented judgment call. The call: a session's label is **computed on
+read** from the `IP` and `UserAgent` `store.Session` already carries.
+No column, no table, **no migration** — so every session ever recorded
+gets a label the first time it is listed, and improving the parser later
+improves old sessions retroactively. `PROGRESS.md` has the full
+reasoning, including the alternatives rejected.
+
+Shipped as: `security/useragent.go` (pure parsing — `Device` with
+`Browser`/`OS`/`Form`, the `FormDesktop`/`FormMobile`/`FormTablet`/
+`FormBot` constants, `Device.String()`, `Device.IsZero()`,
+`ParseUserAgent`), `security/geolocation.go` (`Location` with
+`String()`/`IsZero()`, plus the `IPGeolocator` interface — **zero
+shipped implementations**), `session/named.go` (`NamedSession` embedding
+`store.PublicSession`, the exported `Label` composer, and `ListNamed`),
+the `ListNamedSessions` facade with a `cryden.NamedSession` alias, and
+`Config.Geolocator`. No store interface, migration or query was touched.
+
+The two halves are deliberately asymmetric: parsing ships as real engine
+code because it needs nothing the engine doesn't already hold, while
+placing an IP ships as an interface only because it means an outbound
+call or a licensed database — the `BreachedPasswordChecker` rule. Left
+nil, labels are device-only and nothing else changes; a geolocator error
+costs a label, never the listing; it is asked once per distinct IP per
+call.
+
+Tests: `security/useragent_test.go` (3 funcs, 23 authentic-User-Agent
+subtests), `security/geolocation_test.go` (2), `session/named_test.go`
+(8), plus 2 in `config_test.go` and 3 in `new_facade_test.go`. Smoke
+test: `cmd/smoketest/named-sessions` (42 checks). Manual guide:
+`docs/testing/named-sessions.md`.
+
+### Item 11: NOT STARTED
 
 Detailed specs in `NEXT.md`. The design decision recorded for item 8
 below is kept for reference — it is what the shipped code implements.
@@ -136,10 +173,9 @@ below is kept for reference — it is what the shipped code implements.
   `login_attempts` table with three partial indexes — plus
   `CountTargetsForIP`, added by item 9 above against the same table.
 
-Items 10 and 11 (named/fingerprinted sessions, Redis-backed rate
-limiter) have no prior design decisions recorded — see `NEXT.md` for the
-level of detail available, make reasonable calls on anything
-unspecified, note them in `PROGRESS.md`.
+Item 11 (Redis-backed rate limiter) has no prior design decisions
+recorded — see `NEXT.md` for the level of detail available, make
+reasonable calls on anything unspecified, note them in `PROGRESS.md`.
 
 ## Tier 3 — Infrastructure & Extensibility: NOT STARTED
 
@@ -169,6 +205,13 @@ project brief.
   it. So this branch contains item 8's six commits too: merging it
   lands both items, and merging item 8 first makes this one a clean
   fast-forward. Unmerged and unpushed.
+- `feat/named-sessions` — item 10, complete, 7 commits, branched from
+  `feat/credential-stuffing` at `36690bf`, the tip of the chain, so this
+  branch carries items 8, 9 and 10. Item 10 has no functional dependency
+  on the earlier two — it reads no store or config they added — but its
+  `config.go`/`engine.go` additions sit directly above theirs, so lifting
+  it onto `main` alone means resolving that adjacency by hand. Unmerged
+  and unpushed.
 
 Nothing else in flight. Each new session picks the top item off
 `NEXT.md`, creates its own branch, and this section should be updated to

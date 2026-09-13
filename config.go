@@ -96,6 +96,13 @@ type Config struct {
 	// own doc comment); a checker error fails open rather than
 	// blocking the account action.
 	BreachedPasswordChecker security.BreachedPasswordChecker
+	// Geolocator is optional — only used by ListNamedSessions, to turn
+	// a session's IP into the location half of its label. Ships no
+	// implementation (see the type's own doc comment); left nil, labels
+	// are device-only ("Chrome on Windows") and nothing else changes. A
+	// geolocator error fails open to "location unknown" rather than
+	// failing the listing.
+	Geolocator security.IPGeolocator
 	// Anomalies is optional — set it to turn login anomaly detection
 	// on. Left unset, no detection runs at all and nothing about login
 	// changes; there is no partial or degraded mode. Detection is
