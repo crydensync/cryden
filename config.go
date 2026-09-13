@@ -111,6 +111,26 @@ type Config struct {
 	// counts as a real custom configuration used as-is. Ignored
 	// entirely when Anomalies is nil.
 	AnomalyThresholds security.AnomalyThresholds
+	// CredentialStuffingThresholds tunes credential-stuffing detection —
+	// "one IP failing against many different accounts," which is the gap
+	// LockoutThreshold structurally cannot see (lockout counts failures
+	// against one account; a spray gives each account only one).
+	//
+	// Shares the Anomalies store as its on/off switch rather than having
+	// its own: it is the same login_attempts history read a second way,
+	// not a second tracking system, and a host app that wanted per-IP
+	// failure velocity but specifically not its breadth counterpart would
+	// be a configuration with no coherent use. To silence just this one,
+	// set TargetAccounts (or Window) to zero — the same off switch every
+	// AnomalyThresholds knob has.
+	//
+	// Zero-valued as a whole applies
+	// security.DefaultCredentialStuffingThresholds, exactly like
+	// PasswordPolicy and AnomalyThresholds. Ignored entirely when
+	// Anomalies is nil. Report-only in every case: a flagged IP records a
+	// store.EventCredentialStuffingDetected audit event and nothing else
+	// — no login is ever blocked, delayed, or forced into step-up by it.
+	CredentialStuffingThresholds security.CredentialStuffingThresholds
 
 	// Optional — sensible defaults applied in New() if zero-valued.
 	// These are tuning knobs, not security-critical secrets, so
@@ -194,6 +214,12 @@ func (c *Config) applyDefaults() {
 	// disable every threshold-based signal).
 	if c.AnomalyThresholds == (security.AnomalyThresholds{}) {
 		c.AnomalyThresholds = security.DefaultAnomalyThresholds
+	}
+	// Defaulted independently of AnomalyThresholds above, which is the
+	// whole reason these are two structs: a host app tuning one must not
+	// silently zero — and so disable — the other.
+	if c.CredentialStuffingThresholds == (security.CredentialStuffingThresholds{}) {
+		c.CredentialStuffingThresholds = security.DefaultCredentialStuffingThresholds
 	}
 	if c.Logger == nil {
 		c.Logger = logger.NewConsoleJSONLogger()

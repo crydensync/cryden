@@ -30,7 +30,7 @@ func TestLoginWithOAuth_NewIdentityCreatesUserAndSession(t *testing.T) {
 	ctx := context.Background()
 
 	tokens, err := LoginWithOAuth(ctx, users, oauth, sessions, nil, nil, nil, nil, ids, refreshGen, jwtIssuer, nil, audit, log,
-		"google", "google-ext-id-1", "proguy@example.com", "1.2.3.4", "test-agent", noAnomalyThresholds)
+		"google", "google-ext-id-1", "proguy@example.com", "1.2.3.4", "test-agent", noAnomalyThresholds, noStuffingThresholds)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestLoginWithOAuth_ExistingLinkIssuesSession(t *testing.T) {
 	})
 
 	tokens, err := LoginWithOAuth(ctx, users, oauth, sessions, nil, nil, nil, nil, ids, refreshGen, jwtIssuer, nil, audit, log,
-		"github", "gh-ext-id-1", "devray@example.com", "1.2.3.4", "test-agent", noAnomalyThresholds)
+		"github", "gh-ext-id-1", "devray@example.com", "1.2.3.4", "test-agent", noAnomalyThresholds, noStuffingThresholds)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestLoginWithOAuth_EmailConflictWithPasswordAccountIsRejected(t *testing.T)
 	users.Create(ctx, storeUser("user-1", "proguy@example.com", "some-password-hash"))
 
 	_, err := LoginWithOAuth(ctx, users, oauth, sessions, nil, nil, nil, nil, ids, refreshGen, jwtIssuer, nil, audit, log,
-		"google", "google-ext-id-2", "proguy@example.com", "1.2.3.4", "test-agent", noAnomalyThresholds)
+		"google", "google-ext-id-2", "proguy@example.com", "1.2.3.4", "test-agent", noAnomalyThresholds, noStuffingThresholds)
 
 	var conflict *ErrOAuthEmailConflict
 	if !errors.As(err, &conflict) {

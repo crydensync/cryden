@@ -26,7 +26,7 @@ func TestLoginWithOAuth_AccountWithTOTPPausesForSecondFactor(t *testing.T) {
 
 	// First OAuth login creates the account (no second factor exists yet).
 	_, err := LoginWithOAuth(ctx, users, oauth, sessions, totpStore, nil, nil, nil, ids, refreshGen, jwtIssuer, pendingIssuer, audit, log,
-		"google", "google-ext-id-1", "raymondproguy@dev.com", "1.2.3.4", "test-agent", noAnomalyThresholds)
+		"google", "google-ext-id-1", "raymondproguy@dev.com", "1.2.3.4", "test-agent", noAnomalyThresholds, noStuffingThresholds)
 	if err != nil {
 		t.Fatalf("unexpected error on first login: %v", err)
 	}
@@ -40,7 +40,7 @@ func TestLoginWithOAuth_AccountWithTOTPPausesForSecondFactor(t *testing.T) {
 	// Second OAuth login for the same identity — now with TOTP
 	// enrolled and confirmed — must pause instead of logging straight in.
 	tokens, err := LoginWithOAuth(ctx, users, oauth, sessions, totpStore, nil, nil, nil, ids, refreshGen, jwtIssuer, pendingIssuer, audit, log,
-		"google", "google-ext-id-1", "raymondproguy@dev.com", "1.2.3.4", "test-agent", noAnomalyThresholds)
+		"google", "google-ext-id-1", "raymondproguy@dev.com", "1.2.3.4", "test-agent", noAnomalyThresholds, noStuffingThresholds)
 
 	var secondFactor *ErrSecondFactorRequired
 	if !errors.As(err, &secondFactor) {
@@ -64,7 +64,7 @@ func TestLoginWithOAuth_AuditRecordsProvider(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := LoginWithOAuth(ctx, users, oauth, sessions, nil, nil, nil, nil, ids, refreshGen, jwtIssuer, pendingIssuer, audit, log,
-		"github", "github-ext-id-1", "raymondproguy@dev.com", "1.2.3.4", "test-agent", noAnomalyThresholds)
+		"github", "github-ext-id-1", "raymondproguy@dev.com", "1.2.3.4", "test-agent", noAnomalyThresholds, noStuffingThresholds)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

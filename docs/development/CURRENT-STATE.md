@@ -1,7 +1,7 @@
 # cryden — current state
 
-Last updated: 2026-09-04 (by the session that built anomaly
-detection). Update this file's date and content every time a session
+Last updated: 2026-09-04 (by the session that built
+credential-stuffing detection). Update this file's date and content every time a session
 finishes an item — see `CLAUDE.md`'s end-of-session checklist.
 
 ## Tagged releases
@@ -24,7 +24,7 @@ If you find a real bug in it while working on something else, fix it
 on its own small branch and note it in `PROGRESS.md` — don't treat
 finding it as license to re-audit the rest.
 
-## Tier 2 — Security & Monitoring: IN PROGRESS (1 of 4 done)
+## Tier 2 — Security & Monitoring: IN PROGRESS (2 of 4 done)
 
 ### Item 8 — anomaly detection: DONE, branch `feat/anomaly-detection`
 
@@ -57,7 +57,54 @@ error. Tests: `security/anomaly_test.go` (12, no store at all),
 Smoke test: `cmd/smoketest/anomaly-detection` (54 checks). Manual
 guide: `docs/testing/anomaly-detection.md`.
 
-### Items 9-11: NOT STARTED
+### Item 9 — credential-stuffing detection: DONE, branch `feat/credential-stuffing`
+
+Not merged — the human reviews and pushes. Same "don't re-verify" note
+as everything above.
+
+The attack is one IP trying one leaked password against many different
+accounts, which per-account lockout structurally cannot see: lockout
+counts failures against one account, and a spray gives each account
+exactly one. Built as a second reading of item 8's `login_attempts`
+history, not a second tracking system.
+
+Shipped as: `security/stuffing.go` (pure logic —
+`CredentialStuffingObservations` with its `Breadth()`,
+`CredentialStuffingThresholds`, `DefaultCredentialStuffingThresholds`,
+`Evaluate`, and two signals reusing item 8's `AnomalySignal` type so
+`JoinAnomalySignals` serves both), `auth/stuffing.go` (the
+storage-reading pass plus the cooldown check),
+`store.AnomalyStore.CountTargetsForIP` returning a new
+`store.IPTargetCounts` in both `store/memory` and `store/postgres`, the
+`credential_stuffing_detected` audit event type, and
+`Config.CredentialStuffingThresholds`. **No migration** — the query
+reads the same rows and the same partial index
+(`idx_login_attempts_ip_failures`) `CountFailuresForIP` already used.
+
+Two signals: `account_spray` (breadth over threshold) and
+`unknown_account_spray`, a qualifier that never fires alone and means
+most of the spray hit addresses with no account here. Breadth is
+distinct known accounts plus unknown-target failures, because
+`store.LoginAttempt` never records which email was tried and there is
+nothing to de-duplicate unknown targets on.
+
+Runs on failures (inside `recordLoginFailure`, where a spray is visible
+at all) as well as successes (inside `completePrimaryAuth`, where a
+spray that landed is visible) — both *after* the attempt is recorded, so
+the burst being judged includes it. That is the opposite ordering from
+item 8, which gathers a baseline before recording. Report-only,
+nil-safe, degrades to "no evidence" on any storage error, and `Cooldown`
+collapses a sustained spray into one event per IP via a bounded
+newest-first `SearchByType` scan that fails open.
+
+Tests: `security/stuffing_test.go` (10, no store at all),
+`auth/stuffing_test.go` (9, through the real flows — including that 12
+failures against ONE account is deliberately not flagged), 2 more in
+`store/memory/anomaly_store_test.go`, 3 more in `config_test.go`. Smoke
+test: `cmd/smoketest/credential-stuffing` (99 checks). Manual guide:
+`docs/testing/credential-stuffing.md`.
+
+### Items 10-11: NOT STARTED
 
 Detailed specs in `NEXT.md`. The design decision recorded for item 8
 below is kept for reference — it is what the shipped code implements.
@@ -86,18 +133,13 @@ below is kept for reference — it is what the shipped code implements.
   in-memory rate limiter's known multi-instance correctness gap.
   As built, that interface is `RecordAttempt`, `ListRecentSuccesses`,
   `CountFailuresForUser` and `CountFailuresForIP` over one
-  `login_attempts` table with three partial indexes.
+  `login_attempts` table with three partial indexes — plus
+  `CountTargetsForIP`, added by item 9 above against the same table.
 
-Items 9, 10, 11 (credential-stuffing detection, named/fingerprinted
-sessions, Redis-backed rate limiter) have no prior design decisions
-recorded — see `NEXT.md` for the level of detail available, make
-reasonable calls on anything unspecified, note them in `PROGRESS.md`.
-
-Item 9 in particular: `login_attempts` already holds everything
-credential stuffing needs (per-IP failures across accounts, with
-`user_id` NULL for attempts against nonexistent emails). It needs a
-distinct-target-accounts-per-IP query and a
-`credential_stuffing_detected` event type, but no second migration.
+Items 10 and 11 (named/fingerprinted sessions, Redis-backed rate
+limiter) have no prior design decisions recorded — see `NEXT.md` for the
+level of detail available, make reasonable calls on anything
+unspecified, note them in `PROGRESS.md`.
 
 ## Tier 3 — Infrastructure & Extensibility: NOT STARTED
 
@@ -120,10 +162,17 @@ project brief.
 
 - `feat/anomaly-detection` — item 8, complete, 6 commits, branched from
   `main` at `5b6c7f5`. Unmerged and unpushed, awaiting the human's
-  review. Nothing else in flight. Each new session picks
-the top item off `NEXT.md`, creates its own branch, and this section
-should be updated to reflect that branch's existence and status before
-the session ends. If you start a session and this section already
+  review.
+- `feat/credential-stuffing` — item 9, complete, 6 commits, branched
+  from `feat/anomaly-detection` at `d30ed74` rather than from `main`,
+  because item 9 extends item 8's store and is not reviewable without
+  it. So this branch contains item 8's six commits too: merging it
+  lands both items, and merging item 8 first makes this one a clean
+  fast-forward. Unmerged and unpushed.
+
+Nothing else in flight. Each new session picks the top item off
+`NEXT.md`, creates its own branch, and this section should be updated to
+reflect that branch's existence and status before the session ends. If you start a session and this section already
 lists an in-progress branch, that means a previous session didn't
 finish cleanly — check that branch's own commits before assuming
 anything about its state, and update this file to match reality once
