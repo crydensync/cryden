@@ -3,6 +3,7 @@ package ai
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 )
 
@@ -143,5 +144,65 @@ func TestExecuteQuery_ProviderErrorNeverReachesStore(t *testing.T) {
 	}
 	if db.called {
 		t.Error("RunSafeQuery must not be called if the provider itself failed")
+	}
+}
+
+func TestExecuteIntent_ValidIntentReachesStore(t *testing.T) {
+	db := &fakeQueryableStore{returnValue: QueryResult{Columns: []string{"id"}}}
+
+	result, err := ExecuteIntent(context.Background(), db, QueryIntent{
+		Entity:  "sessions",
+		Filters: []QueryFilter{{Field: "user_id", Operator: "=", Value: "u1"}},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !db.called {
+		t.Error("expected RunSafeQuery to be called for a valid intent")
+	}
+	if result.Columns[0] != "id" {
+		t.Errorf("expected the store's result to be returned, got %+v", result)
+	}
+	if db.lastIntent.Limit != DefaultLimit {
+		t.Errorf("expected the zero limit to be defaulted to %d, got %d", DefaultLimit, db.lastIntent.Limit)
+	}
+}
+
+func TestExecuteIntent_UnsafeIntentNeverReachesStore(t *testing.T) {
+	db := &fakeQueryableStore{}
+
+	_, err := ExecuteIntent(context.Background(), db, QueryIntent{Entity: "secrets"})
+	if !errors.Is(err, ErrUnsafeQueryIntent) {
+		t.Fatalf("expected ErrUnsafeQueryIntent, got %v", err)
+	}
+	if db.called {
+		t.Error("RunSafeQuery must not be called for a disallowed entity")
+	}
+}
+
+// TestExecuteQuery_IsExecuteIntentPlusParsing pins the refactor: with
+// the same intent and no provider error, ExecuteQuery and a manual
+// ParseQueryIntent+ExecuteIntent call must behave identically. This is
+// the test that would catch ExecuteQuery and ExecuteIntent drifting
+// out of sync with each other.
+func TestExecuteQuery_IsExecuteIntentPlusParsing(t *testing.T) {
+	intent := QueryIntent{Entity: "users", Filters: []QueryFilter{{Field: "id", Operator: "=", Value: "u1"}}}
+	provider := fakeLLMProvider{intent: intent}
+
+	dbViaExecuteQuery := &fakeQueryableStore{returnValue: QueryResult{Columns: []string{"id"}}}
+	_, err := ExecuteQuery(context.Background(), dbViaExecuteQuery, provider, "anything")
+	if err != nil {
+		t.Fatalf("ExecuteQuery: %v", err)
+	}
+
+	dbViaExecuteIntent := &fakeQueryableStore{returnValue: QueryResult{Columns: []string{"id"}}}
+	_, err = ExecuteIntent(context.Background(), dbViaExecuteIntent, intent)
+	if err != nil {
+		t.Fatalf("ExecuteIntent: %v", err)
+	}
+
+	if !reflect.DeepEqual(dbViaExecuteQuery.lastIntent, dbViaExecuteIntent.lastIntent) {
+		t.Errorf("ExecuteQuery and ExecuteIntent produced different validated intents:\n%+v\n%+v",
+			dbViaExecuteQuery.lastIntent, dbViaExecuteIntent.lastIntent)
 	}
 }
