@@ -216,7 +216,7 @@ re-derive it**:
 
 ## Tier 3 — Infrastructure & Extensibility: DONE (7 of 7)
 
-Tier 4 is next. See `NEXT.md`.
+Tier 4 is in progress — item 19 done. See `NEXT.md`.
 
 ### Item 12 — Argon2id hasher: DONE, branch `feat/argon2id-hasher`
 
@@ -623,10 +623,68 @@ existing host implementation at compile time, which is why
 it is not done here, on the item's own "don't build something
 speculative to have built something" instruction.
 
-## Tier 4 — AI-assisted admin features: NOT STARTED
+## Tier 4 — AI-assisted admin features: IN PROGRESS (1 of 4)
 
 Four items, all read-only/surface-only by explicit, non-negotiable
-requirement — no automatic action, ever. See `NEXT.md`.
+requirement — no automatic action, ever. See `NEXT.md`. Item 19 done;
+items 20-22 not started.
+
+### Item 19 — Weekly digest: DONE, branch `feat/weekly-digest`
+
+`cryden.WeeklyDigest(ctx, e)` returns the last seven days of audit
+history as plain text; `cryden.DigestSince(ctx, e, since)` is the same
+report over a caller-chosen window. No `Config` field, no store to
+supply, nothing to tune — it reads the audit store the engine already
+has.
+
+New package `admin`, which is where items 20 and 21 belong too. Its
+reason to exist is `admin.AuditReader`: the read-only slice of
+`store.AuditStore` a report is handed, carrying `CountByType` and
+`SearchByType` and **no `Record`**. Tier 4's read-only rule is therefore
+a compile error in this package rather than a promise — a report is
+never given anything that could write. `admin` calls nothing external
+and composes the text itself; it is deliberately not part of `ai`, whose
+whole subject is validating untrusted model output.
+
+**One breaking change for hosts with their own store:**
+`store.AuditStore` gained
+
+```go
+CountByType(ctx context.Context, since time.Time) (map[AuditEventType]int, error)
+```
+
+implemented in all three backends (`memory`, `postgres`, `sqlite`) and
+**needing no migration** — it is a `GROUP BY type` over the existing
+`audit_events`. A host implementation will not compile until it adds the
+method, which is the intended failure mode: a silently absent count
+would produce a digest reporting a calm week because the store could not
+answer. The contract (boundary inclusive, absent types rather than
+zeroes, empty non-nil map for an empty window, unknown types counted)
+is documented on the interface and in full in
+`docs/testing/weekly-digest.md`.
+
+Why a method on the interface rather than an optional side interface,
+which is the house pattern for *behaviour* interfaces: `webhookRecorder`
+**embeds** `store.AuditStore`, so a new interface method forwards for
+free, while an optional side interface would be hidden by that decorator
+— the digest would have come back empty for exactly the hosts that wired
+webhooks up. Item 9 set the precedent of extending a *store* interface in
+place. Both halves are covered by tests, one of them explicitly through
+the decorated store.
+
+Report shape: fixed section order (`Needs attention`, `Accounts`,
+`Sign-ins`, `Sign-in methods`, `API keys`, `Other events`), empty
+sections and zero-count types omitted so a quiet week is two lines, and
+individual events spelled out only for the four `Needs attention` types
+— capped at 10 per type, with the count beside the heading always the
+exact one. All 31 engine event types are classified; anything
+unrecognised, including a host's own, is counted under `Other events`
+rather than dropped. Rendering is deterministic and UTC.
+
+Postgres is a sequential scan by design — no index on `(created_at)` or
+`(type, created_at)` — the same trade the schema already documents for
+`SearchByType`: affordable weekly, wrong per-request, and an extra
+B-tree on the busiest write path is not cheap to undo.
 
 ## Tier 5 — do not start without an explicit go-ahead from the project owner
 
@@ -720,6 +778,15 @@ project brief.
   Go file, so unlike every branch before it this one lifts onto `main`
   with nothing to reconcile. No dependency, no migration. Unmerged and
   unpushed.
+- `feat/weekly-digest` — item 19, complete, 7 commits, branched from
+  `feat/custom-email-templates` at `4058460`, the tip of the chain, so
+  this branch carries items 8 through 19. Touches `cryden.go` and
+  `store/interfaces.go` plus all three store backends, so the same
+  by-hand adjacency as items 10-12, 14, 15 and 16 applies if it is
+  lifted onto `main` alone. Adds the new `admin` package. **No
+  dependency, no migration**, but it does add a method to
+  `store.AuditStore`, which breaks any host implementation at compile
+  time until that host adds it. Unmerged and unpushed.
 - `fix/committed-smoketest-binary` — not a queue item. A pre-existing
   bug found while working on item 14: a 9.8 MB compiled `argon2id-hasher`
   binary was committed to the repo by item 12's session (`57a5dbd`) and

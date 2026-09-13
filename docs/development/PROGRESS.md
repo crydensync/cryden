@@ -907,3 +907,81 @@ knob. No external service, no mail provider contacted.
 Tier 3 is now complete (7 of 7). Next in queue: item 19, the weekly
 digest — the first of Tier 4, where everything is read-only by
 non-negotiable rule.
+
+## 2026-09-06 — item 19, weekly digest
+
+Branch: `feat/weekly-digest` (7 commits, branched from
+`feat/custom-email-templates` at `4058460`). Built:
+`cryden.WeeklyDigest(ctx, e)` and `cryden.DigestSince(ctx, e, since)`,
+returning the audit history of a window as plain text; the new read-only
+`admin` package behind them; and `store.AuditStore.CountByType` on all
+three backends. No config field, no migration, no new dependency.
+
+Assumptions and decisions, all of them mine to make:
+
+- **Added `CountByType` to `store.AuditStore` rather than an optional
+  side interface.** The house pattern for extending a frozen *behaviour*
+  interface is an optional side interface (`Rehasher`, `ContextLogger`),
+  but `webhookRecorder` **embeds** `store.AuditStore`, so a new interface
+  method forwards through the decorator for free while an optional
+  interface would be invisible behind it — the digest would have been
+  empty for exactly the hosts that configured webhooks. Item 9 already
+  set the precedent of extending a *store* interface in place
+  (`AnomalyStore.CountTargetsForIP`). This is a compile-time break for a
+  host with its own `AuditStore`, which is the right failure: a silently
+  missing count reads as a calm week. There is a test for the decorated
+  path specifically.
+- **Counting in the store, not in Go.** The alternative was 31
+  `SearchByType` sweeps filtered by timestamp, which moves up to
+  `31 × limit` rows over the network to produce numbers, and can still
+  only report "at least N" for the very figures a human opens a digest
+  to read. One `GROUP BY type` per week is strictly cheaper than the
+  status quo, so **no index and no migration were added** — Postgres
+  scans, the same trade the schema already documents for `SearchByType`.
+- **A new `admin` package rather than `ai`.** Item 19 involves no model:
+  `ai`'s whole subject is validating untrusted model output and it
+  deliberately imports no domain types. `admin.AuditReader` — the
+  interface a report is handed, with `CountByType` and `SearchByType` and
+  no `Record` — makes Tier 4's read-only rule a compile error instead of
+  a convention, and items 20 and 21 belong in the same package without a
+  rename later.
+- **The window always ends now.** `DigestSince` takes a start only. The
+  detail lines come from `SearchByType`, which returns the newest events
+  of a type with no window of its own, so a digest ending last Tuesday
+  would count correctly and come back with no detail at all. Better to
+  have no end bound than one whose highlights silently empty out. A
+  `since` in the future is an empty window, not an error.
+- **Detail for four event types, capped at ten.** Only the
+  `Needs attention` group (`account_locked`, `token_reuse_detected`,
+  `anomaly_detected`, `credential_stuffing_detected` — the same four item
+  17 grouped as "something is wrong") gets individual events printed;
+  everything else is counted. The cap bounds what the report prints,
+  never what it knows, and the text says "the 10 most recent of 12 shown"
+  against the exact count. Listing 4,210 successful sign-ins would bury
+  the one lockout that mattered.
+- **All 31 event types are classified into five printed sections, and
+  the table is not authoritative.** Anything absent — a host's own event
+  type, or one the engine gains later — is counted under
+  `Other events (types this engine does not define)`. A stale table
+  degrades a digest; it never hides anything from it. `digestSections`
+  is also what `digestAttentionTypes()` is derived from, so the queries
+  that fetch detail cannot drift from the section that prints it.
+- **Text, not a struct, on the facade.** The spec said "returns text.
+  Nothing else", so `WeeklyDigest` returns a `string` and no type alias
+  was exported. `admin.BuildDigest` and `admin.Digest` are there for a
+  host that wants the numbers, without the root package committing to
+  their shape.
+
+Verification: `gofmt -l` clean on every changed file, `go build ./...`,
+`go vet ./...` and `go test ./... -count=1` all clean — 46 new tests
+(`admin/digest_test.go`, `digest_facade_test.go`, and the `CountByType`
+suites for all three stores; the Postgres ones skip without
+`DATABASE_URL`) — and `go run ./cmd/smoketest/weekly-digest` passes all 49
+checks over nine sections, including a store whose reads fail being an
+error rather than a report that reads like a quiet week, and no password,
+hash, JWT secret or email address appearing in text meant to be mailed
+around.
+
+Next in queue: item 20, the support-ticket assistant — read-only
+diagnosis of why one user cannot sign in, same `admin` package, same
+non-negotiable read-only rule.

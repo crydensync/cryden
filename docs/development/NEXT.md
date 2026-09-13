@@ -22,11 +22,13 @@ Tier 3 is complete — all seven items done. See `CURRENT-STATE.md`.
 automatic action — no auto-lock, no auto-config-change, nothing. Every
 one of these produces information for a human to act on.
 
-### 1. Weekly digest (item 19)
-Reads `AuditStore`, summarizes in plain English, returns text. Nothing
-else.
+### 1. Weekly digest (item 19) — DONE
+Built on `feat/weekly-digest`. `cryden.WeeklyDigest` /
+`cryden.DigestSince`, new read-only `admin` package, new
+`store.AuditStore.CountByType` on all three stores. See
+`CURRENT-STATE.md`.
 
-### 2. Support-ticket assistant (item 20)
+### 2. Support-ticket assistant (item 20) — NEXT
 Read-only diagnosis ("why can't user X log in") — queries
 `AuditStore`/`UserStore`/session state, produces an explanation, never
 touches anything.
