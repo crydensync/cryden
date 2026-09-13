@@ -94,3 +94,56 @@ func TestNew_AppliesDefaultPasswordPolicyWhenFullyUnset(t *testing.T) {
 		t.Errorf("expected DefaultPasswordPolicy when Config.PasswordPolicy is left unset, got %+v", e.passwordPolicy)
 	}
 }
+
+func TestNew_AppliesDefaultAnomalyThresholdsWhenFullyUnset(t *testing.T) {
+	cfg := validConfig()
+	e, err := New(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if e.anomalyThresholds != security.DefaultAnomalyThresholds {
+		t.Errorf("expected DefaultAnomalyThresholds when Config.AnomalyThresholds is unset, got %+v", e.anomalyThresholds)
+	}
+}
+
+func TestNew_LeavesPartialCustomAnomalyThresholdsIntact(t *testing.T) {
+	// Same whole-struct zero comparison as PasswordPolicy: a caller who
+	// tunes one knob must not have the rest silently replaced.
+	cfg := validConfig()
+	cfg.AnomalyThresholds = security.AnomalyThresholds{UserFailureVelocity: 3}
+	e, err := New(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if e.anomalyThresholds.UserFailureVelocity != 3 {
+		t.Errorf("expected UserFailureVelocity 3 to survive applyDefaults, got %d", e.anomalyThresholds.UserFailureVelocity)
+	}
+	if e.anomalyThresholds.IPFailureVelocity != 0 {
+		t.Errorf("expected the untouched fields to stay zero, got %d", e.anomalyThresholds.IPFailureVelocity)
+	}
+}
+
+// Anomaly detection is off until a store is injected, like every other
+// optional feature. An engine without one must build and work normally.
+func TestNew_AnomalyDetectionIsOffWithoutAStore(t *testing.T) {
+	cfg := validConfig()
+	e, err := New(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if e.anomalies != nil {
+		t.Error("expected no AnomalyStore when Config.Anomalies is unset")
+	}
+}
+
+func TestNew_AcceptsAnAnomalyStore(t *testing.T) {
+	cfg := validConfig()
+	cfg.Anomalies = memory.NewAnomalyStore()
+	e, err := New(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if e.anomalies == nil {
+		t.Error("expected Config.Anomalies to reach the engine")
+	}
+}

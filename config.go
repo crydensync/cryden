@@ -96,6 +96,21 @@ type Config struct {
 	// own doc comment); a checker error fails open rather than
 	// blocking the account action.
 	BreachedPasswordChecker security.BreachedPasswordChecker
+	// Anomalies is optional — set it to turn login anomaly detection
+	// on. Left unset, no detection runs at all and nothing about login
+	// changes; there is no partial or degraded mode. Detection is
+	// report-only in every case: a flagged attempt records a
+	// store.EventAnomalyDetected audit event carrying which signals
+	// fired, and the host app decides what that's worth. The engine
+	// never blocks, never forces step-up authentication, and returns no
+	// error a caller could branch on.
+	Anomalies store.AnomalyStore
+	// AnomalyThresholds tunes how sensitive that detection is. Like
+	// PasswordPolicy, leaving the entire struct zero-valued applies
+	// security.DefaultAnomalyThresholds, and setting even one field
+	// counts as a real custom configuration used as-is. Ignored
+	// entirely when Anomalies is nil.
+	AnomalyThresholds security.AnomalyThresholds
 
 	// Optional — sensible defaults applied in New() if zero-valued.
 	// These are tuning knobs, not security-critical secrets, so
@@ -172,6 +187,13 @@ func (c *Config) applyDefaults() {
 	// custom policy just because one field was left at its default.
 	if c.PasswordPolicy == (security.PasswordPolicy{}) {
 		c.PasswordPolicy = security.DefaultPasswordPolicy
+	}
+	// Same whole-struct comparison, same reasoning as PasswordPolicy
+	// above — a caller who sets only Window meant to keep the default
+	// thresholds, not to zero every one of them (which would silently
+	// disable every threshold-based signal).
+	if c.AnomalyThresholds == (security.AnomalyThresholds{}) {
+		c.AnomalyThresholds = security.DefaultAnomalyThresholds
 	}
 	if c.Logger == nil {
 		c.Logger = logger.NewConsoleJSONLogger()
